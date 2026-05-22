@@ -762,6 +762,7 @@
   <string name="capability_thinking" translatable="false">Thinking</string>
   <string name="capability_tools" translatable="false">Tools</string>
   <string name="capability_npu" translatable="false">NPU</string>
+  <string name="capability_speculative_decoding" translatable="false">MTP</string>
 
   <!-- Models screen: Error/empty states -->
   <string name="models_failed_to_load" translatable="false">Failed to load models</string>
@@ -901,6 +902,7 @@
   <string name="config_label_support_thinking" translatable="false">Support\nthinking</string>
   <string name="config_label_support_tools" translatable="false">Support\ntools</string>
   <string name="config_label_enable_thinking" translatable="false">Enable thinking</string>
+  <string name="config_label_enable_speculative_decoding" translatable="false">Speculative decoding</string>
   <string name="config_label_accelerator" translatable="false">Accelerator</string>
   <string name="config_label_vision_accelerator" translatable="false">Vision accelerator</string>
   <string name="config_label_compatible_accelerators" translatable="false">Compatible accelerators</string>

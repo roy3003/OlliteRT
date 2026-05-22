@@ -45,6 +45,7 @@ object ConfigKeys {
   val SUPPORT_THINKING = ConfigKey("support_thinking", "Support thinking", R.string.config_label_support_thinking)
   val SUPPORT_TOOLS = ConfigKey("support_tools", "Support tools", R.string.config_label_support_tools)
   val ENABLE_THINKING = ConfigKey("enable_thinking", "Enable thinking", R.string.config_label_enable_thinking)
+  val ENABLE_SPECULATIVE_DECODING = ConfigKey("enable_speculative_decoding", "Speculative decoding", R.string.config_label_enable_speculative_decoding)
   val ACCELERATOR = ConfigKey("accelerator", "Accelerator", R.string.config_label_accelerator)
   val VISION_ACCELERATOR = ConfigKey("vision_accelerator", "Vision accelerator", R.string.config_label_vision_accelerator)
   val COMPATIBLE_ACCELERATORS = ConfigKey("compatible_accelerators", "Compatible accelerators", R.string.config_label_compatible_accelerators)
@@ -78,6 +79,10 @@ fun Map<String, Any>.configTopP(): Float? =
 /** Read [ConfigKeys.ENABLE_THINKING] as [Boolean], or null if absent/non-boolean. */
 fun Map<String, Any>.configThinkingEnabled(): Boolean? =
   this[ConfigKeys.ENABLE_THINKING.id] as? Boolean
+
+/** Read [ConfigKeys.ENABLE_SPECULATIVE_DECODING] as [Boolean], or null if absent/non-boolean. */
+fun Map<String, Any>.configSpeculativeDecodingEnabled(): Boolean? =
+  this[ConfigKeys.ENABLE_SPECULATIVE_DECODING.id] as? Boolean
 
 /**
  * Base class for configuration settings.
@@ -218,6 +223,7 @@ fun createLlmChatConfigs(
   defaultTemperature: Float = DEFAULT_TEMPERATURE,
   accelerators: List<Accelerator> = DEFAULT_ACCELERATORS,
   supportThinking: Boolean = false,
+  supportSpeculativeDecoding: Boolean = false,
 ): List<Config> {
   var maxTokensConfig: Config =
     LabelConfig(key = ConfigKeys.MAX_TOKENS, defaultValue = "$defaultMaxToken")
@@ -268,6 +274,9 @@ fun createLlmChatConfigs(
 
   if (supportThinking) {
     configs.add(BooleanSwitchConfig(key = ConfigKeys.ENABLE_THINKING, defaultValue = false, needReinitialization = false)) // Read at request time, not during Engine init
+  }
+  if (supportSpeculativeDecoding) {
+    configs.add(BooleanSwitchConfig(key = ConfigKeys.ENABLE_SPECULATIVE_DECODING, defaultValue = false))
   }
   return configs
 }

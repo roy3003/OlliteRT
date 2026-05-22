@@ -185,4 +185,70 @@ class ConfigHelpersTest {
     }
     assertFalse(model.isThinkingEnabled)
   }
+
+  // ── configSpeculativeDecodingEnabled ────────────────────────────────────
+
+  @Test
+  fun configSpeculativeDecodingEnabledTrue() {
+    val map = mapOf(ConfigKeys.ENABLE_SPECULATIVE_DECODING.id to true)
+    assertEquals(true, map.configSpeculativeDecodingEnabled())
+  }
+
+  @Test
+  fun configSpeculativeDecodingEnabledFalse() {
+    val map = mapOf(ConfigKeys.ENABLE_SPECULATIVE_DECODING.id to false)
+    assertEquals(false, map.configSpeculativeDecodingEnabled())
+  }
+
+  @Test
+  fun configSpeculativeDecodingEnabledMissingReturnsNull() {
+    assertNull(emptyMap<String, Any>().configSpeculativeDecodingEnabled())
+  }
+
+  @Test
+  fun configSpeculativeDecodingEnabledNonBooleanReturnsNull() {
+    val map = mapOf(ConfigKeys.ENABLE_SPECULATIVE_DECODING.id to "yes")
+    assertNull(map.configSpeculativeDecodingEnabled())
+  }
+
+  // ── Model.isSpeculativeDecodingEnabled ──────────────────────────────────
+
+  @Test
+  fun isSpeculativeDecodingEnabledTrueWhenCapableAndEnabled() {
+    val model = Model(
+      name = "test",
+      capabilities = setOf(ModelCapability.SPECULATIVE_DECODING),
+    ).apply {
+      configValues = mapOf(ConfigKeys.ENABLE_SPECULATIVE_DECODING.id to true)
+    }
+    assertTrue(model.isSpeculativeDecodingEnabled)
+  }
+
+  @Test
+  fun isSpeculativeDecodingEnabledFalseWhenCapableButMissing() {
+    val model = Model(
+      name = "test",
+      capabilities = setOf(ModelCapability.SPECULATIVE_DECODING),
+    )
+    assertFalse(model.isSpeculativeDecodingEnabled)
+  }
+
+  @Test
+  fun isSpeculativeDecodingEnabledFalseWhenCapableButDisabled() {
+    val model = Model(
+      name = "test",
+      capabilities = setOf(ModelCapability.SPECULATIVE_DECODING),
+    ).apply {
+      configValues = mapOf(ConfigKeys.ENABLE_SPECULATIVE_DECODING.id to false)
+    }
+    assertFalse(model.isSpeculativeDecodingEnabled)
+  }
+
+  @Test
+  fun isSpeculativeDecodingEnabledFalseWhenNotCapable() {
+    val model = Model(name = "test").apply {
+      configValues = mapOf(ConfigKeys.ENABLE_SPECULATIVE_DECODING.id to true)
+    }
+    assertFalse(model.isSpeculativeDecodingEnabled)
+  }
 }

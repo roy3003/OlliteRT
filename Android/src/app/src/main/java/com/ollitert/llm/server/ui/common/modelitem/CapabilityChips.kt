@@ -61,6 +61,7 @@ fun CapabilityChips(
           ModelCapability.THINKING -> R.string.capability_thinking
           ModelCapability.TOOLS -> R.string.capability_tools
           ModelCapability.NPU -> R.string.capability_npu
+          ModelCapability.SPECULATIVE_DECODING -> R.string.capability_speculative_decoding
         }
         CapabilityChip(label = stringResource(label), searchQuery = searchQuery)
       }

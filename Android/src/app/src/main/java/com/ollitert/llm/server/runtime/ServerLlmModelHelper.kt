@@ -23,6 +23,7 @@ import android.os.Environment
 import android.os.StatFs
 import android.util.Log
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Capabilities
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Conversation
@@ -46,6 +47,8 @@ import com.ollitert.llm.server.data.DEFAULT_TOPP
 import com.ollitert.llm.server.data.DEFAULT_VISION_ACCELERATOR
 import com.ollitert.llm.server.data.MIN_STORAGE_FOR_MODEL_INIT_BYTES
 import com.ollitert.llm.server.data.Model
+import com.ollitert.llm.server.data.ModelCapability
+import com.ollitert.llm.server.data.configSpeculativeDecodingEnabled
 import com.ollitert.llm.server.data.bytesToMb
 import com.ollitert.llm.server.service.EventCategory
 import com.ollitert.llm.server.service.PromptBuilder
@@ -276,10 +279,28 @@ object ServerLlmModelHelper {
           else null,
       )
 
+    var supportsSpeculativeDecoding = false
+    try {
+      Capabilities(modelPath).use {
+        supportsSpeculativeDecoding = it.hasSpeculativeDecodingSupport()
+      }
+    } catch (e: Exception) {
+      Log.w(TAG, "Capabilities probe failed for '${model.name}': ${e.message}")
+    }
+
+    val specDecUserEnabled = configOverrides?.configSpeculativeDecodingEnabled()
+      ?: model.configValues.configSpeculativeDecodingEnabled()
+      ?: false
+    val enableSpeculativeDecoding = supportsSpeculativeDecoding &&
+      ModelCapability.SPECULATIVE_DECODING in model.capabilities &&
+      specDecUserEnabled
+
     var engine: Engine? = null
     try {
+      ExperimentalFlags.enableSpeculativeDecoding = enableSpeculativeDecoding
       engine = Engine(engineConfig)
       engine.initialize()
+      ExperimentalFlags.enableSpeculativeDecoding = false
 
       // THREAD SAFETY: This global flag has a set/read/reset race if initialize() and
       // resetConversation() overlap on different threads. Currently benign — all server-layer
@@ -315,14 +336,17 @@ object ServerLlmModelHelper {
       } finally {
         ExperimentalFlags.enableConversationConstrainedDecoding = false
       }
-      Log.i(TAG, "Engine initialized successfully on ${preferredBackend::class.simpleName} for '${model.name}'")
+      Log.i(TAG, "Engine initialized successfully on ${preferredBackend::class.simpleName} for '${model.name}'" +
+        " (speculative_decoding=$enableSpeculativeDecoding)")
       RequestLogStore.addEvent(
-        "Engine initialized on ${preferredBackend::class.simpleName}",
+        "Engine initialized on ${preferredBackend::class.simpleName}" +
+          if (enableSpeculativeDecoding) " (MTP enabled)" else "",
         level = LogLevel.INFO,
         modelName = model.name,
         category = EventCategory.MODEL,
       )
     } catch (e: Exception) {
+      ExperimentalFlags.enableSpeculativeDecoding = false
       Log.e(TAG, "Engine init failed for '${model.name}' with ${preferredBackend::class.simpleName}: " +
         "[${e::class.simpleName}] ${e.message}", e)
       RequestLogStore.addEvent(

@@ -50,6 +50,7 @@ message LlmConfig {
   reserved 8, 9; // was support_tiny_garden, support_mobile_actions (removed — Gallery demo features)
   bool support_thinking = 10;
   bool support_tools = 11;
+  bool support_speculative_decoding = 12;
 }
 
 message RepositoryEntry {
