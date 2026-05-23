@@ -302,6 +302,9 @@ constructor(
         model.version = it.commitHash
         model.downloadFileName = it.fileName
       }
+      for (config in model.configs) {
+        if (config.requiresModelUpdate) config.subtitle = null
+      }
     }
 
     if (model.imported) {
