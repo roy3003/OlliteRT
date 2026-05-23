@@ -23,6 +23,7 @@ import kotlinx.serialization.Serializable
 import com.ollitert.llm.server.common.GitHubConfig
 import com.ollitert.llm.server.common.SemVer
 import com.ollitert.llm.server.common.isPixel10
+import com.ollitert.llm.server.common.isPixelDevice
 
 private const val TAG = "OlliteRT.Allowlist"
 
@@ -137,7 +138,7 @@ data class AllowedModel(
     var finalDescription = description
     var acceleratorsStr = defaultConfig.accelerators
 
-    if (isPixel10()) {
+    if (isPixelDevice()) {
       finalDescription = description.replace(Regex("\\bNPU\\b"), "TPU")
       acceleratorsStr = acceleratorsStr?.replace(Regex("\\bnpu\\b"), "tpu")
     }
@@ -150,7 +151,7 @@ data class AllowedModel(
     }
     if (defaultConfig.visionAccelerator != null) {
       var visionAccStr = defaultConfig.visionAccelerator
-      if (isPixel10()) {
+      if (isPixelDevice()) {
         visionAccStr = visionAccStr.replace(Regex("\\bnpu\\b"), "tpu")
       }
       parseAccelerator(visionAccStr)?.let { visionAccelerator = it }

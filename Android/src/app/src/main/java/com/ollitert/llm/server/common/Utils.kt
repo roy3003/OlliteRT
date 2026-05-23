@@ -29,6 +29,10 @@ import kotlin.math.pow
 fun cleanUpLiteRtErrorMessage(message: String): String =
   message.substringBefore("=== Source Location Trace")
 
+fun isPixelDevice(): Boolean {
+  return Build.MODEL != null && Build.MODEL.lowercase().contains("pixel")
+}
+
 fun isPixel10(): Boolean {
   return Build.MODEL != null && Build.MODEL.lowercase().contains("pixel 10")
 }
