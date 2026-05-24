@@ -136,6 +136,7 @@ enum class CapabilityFilter(val labelResId: Int, val capability: ModelCapability
   THINKING(R.string.capability_thinking, ModelCapability.THINKING),
   TOOLS(R.string.capability_tools, ModelCapability.TOOLS),
   NPU(R.string.capability_npu, ModelCapability.NPU),
+  SPECULATIVE_DECODING(R.string.capability_speculative_decoding, ModelCapability.SPECULATIVE_DECODING),
 }
 
 /** Sort mode for the models list. */

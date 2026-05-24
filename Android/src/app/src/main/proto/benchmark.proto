@@ -47,6 +47,7 @@ message LlmBenchmarkBasicInfo {
   int32 decode_tokens = 6;
   int32 number_of_runs = 7;
   string app_version = 8;
+  bool speculative_decoding = 9;
 }
 
 message LlmBenchmarkStats {

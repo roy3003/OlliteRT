@@ -54,6 +54,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Terminal
@@ -115,6 +116,8 @@ import com.ollitert.llm.server.data.maxTokensInt
 import com.ollitert.llm.server.data.ServerPrefs
 import com.ollitert.llm.server.data.Model
 import com.ollitert.llm.server.data.NumberSliderConfig
+import com.ollitert.llm.server.data.configSpeculativeDecodingEnabled
+import com.ollitert.llm.server.data.llmSupportSpeculativeDecoding
 import com.ollitert.llm.server.data.llmSupportThinking
 import com.ollitert.llm.server.runtime.GpuAvailability
 import com.ollitert.llm.server.ui.common.GpuUnavailableDialog
@@ -160,6 +163,11 @@ fun InferenceSettingsSheet(
   var enableThinking by remember {
     mutableStateOf(
       configValues.configThinkingEnabled() ?: false
+    )
+  }
+  var enableSpeculativeDecoding by remember {
+    mutableStateOf(
+      configValues.configSpeculativeDecodingEnabled() ?: false
     )
   }
   // NPU/TPU availability is driven entirely by the model allowlist — there is no runtime API in
@@ -236,6 +244,7 @@ fun InferenceSettingsSheet(
           val defTopK = defaults.configTopK() ?: 40
           val defTopP = defaults.configTopP() ?: 0.95f
           val defThinking = defaults.configThinkingEnabled() ?: false
+          val defSpecDec = defaults.configSpeculativeDecodingEnabled() ?: false
           val defaultAcc = defaults[ConfigKeys.ACCELERATOR.id]?.toString() ?: ""
           val defAccelerator = availableAccelerators.find { it.label.equals(defaultAcc, ignoreCase = true) }
             ?: availableAccelerators.first()
@@ -244,6 +253,7 @@ fun InferenceSettingsSheet(
           topK = defTopK
           topP = defTopP
           enableThinking = defThinking
+          enableSpeculativeDecoding = defSpecDec
           selectedAccelerator = if (defAccelerator == Accelerator.GPU && !gpuAccessible) {
             availableAccelerators.find { it == Accelerator.CPU } ?: defAccelerator
           } else {
@@ -257,6 +267,7 @@ fun InferenceSettingsSheet(
           newValues[ConfigKeys.TOPK.id] = defTopK
           newValues[ConfigKeys.TOPP.id] = defTopP
           newValues[ConfigKeys.ENABLE_THINKING.id] = defThinking
+          newValues[ConfigKeys.ENABLE_SPECULATIVE_DECODING.id] = defSpecDec
           newValues[ConfigKeys.ACCELERATOR.id] = defAccelerator.label
           onApply(newValues, "", true)
         }) {
@@ -424,6 +435,55 @@ fun InferenceSettingsSheet(
         )
       }
 
+      // Speculative Decoding (MTP) toggle
+      val supportsSpecDec = model.llmSupportSpeculativeDecoding
+      val specDecEnabled = supportsSpecDec && !model.updatable
+      val specDecConfig = model.configs.find { it.key == ConfigKeys.ENABLE_SPECULATIVE_DECODING }
+      if (supportsSpecDec) {
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+              if (specDecEnabled) MaterialTheme.colorScheme.surfaceContainerHigh
+              else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.4f)
+            )
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Icon(
+            Icons.Outlined.Bolt,
+            contentDescription = null,
+            tint = if (specDecEnabled) OlliteRTPrimary else MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(24.dp),
+          )
+          Spacer(modifier = Modifier.width(12.dp))
+          Column(modifier = Modifier.weight(1f)) {
+            Text(
+              text = stringResource(R.string.inference_settings_spec_dec_label),
+              style = MaterialTheme.typography.bodyLarge,
+              fontWeight = FontWeight.Medium,
+              color = if (specDecEnabled) MaterialTheme.colorScheme.onSurface
+                      else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+            )
+            val subtitle = specDecConfig?.subtitle
+            Text(
+              text = subtitle ?: stringResource(R.string.inference_settings_spec_dec_supported),
+              style = MaterialTheme.typography.bodySmall,
+              color = if (!specDecEnabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                      else if (subtitle != null) MaterialTheme.colorScheme.error
+                      else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+          Switch(
+            checked = enableSpeculativeDecoding && specDecEnabled,
+            onCheckedChange = { enableSpeculativeDecoding = it },
+            enabled = specDecEnabled,
+            colors = SwitchDefaults.colors(checkedTrackColor = OlliteRTPrimary),
+          )
+        }
+      }
+
       // Accelerator toggle in a container
       Column(
         modifier = Modifier
@@ -589,6 +649,7 @@ fun InferenceSettingsSheet(
           newValues[ConfigKeys.TOPK.id] = topK
           newValues[ConfigKeys.TOPP.id] = topP
           newValues[ConfigKeys.ENABLE_THINKING.id] = enableThinking
+          newValues[ConfigKeys.ENABLE_SPECULATIVE_DECODING.id] = enableSpeculativeDecoding
           newValues[ConfigKeys.ACCELERATOR.id] = selectedAccelerator.label
           onApply(newValues, systemPrompt, false)
         },

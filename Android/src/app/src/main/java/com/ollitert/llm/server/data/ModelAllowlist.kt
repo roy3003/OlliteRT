@@ -69,6 +69,7 @@ data class AllowedModel(
   val llmSupportAudio: Boolean? = null,
   val llmSupportThinking: Boolean? = null,
   val llmSupportTools: Boolean? = null,
+  val llmSupportSpeculativeDecoding: Boolean? = null,
   val minDeviceMemoryInGb: Int? = null,
   val localModelFilePathOverride: String? = null,
   val url: String? = null,
@@ -175,6 +176,7 @@ data class AllowedModel(
             defaultMaxContextLength = llmMaxContextLength,
             accelerators = accelerators,
             supportThinking = llmSupportThinking == true,
+            supportSpeculativeDecoding = llmSupportSpeculativeDecoding == true,
           )
         })
         .toMutableList()
@@ -200,6 +202,7 @@ data class AllowedModel(
         if (llmSupportThinking == true) add(ModelCapability.THINKING)
         if (llmSupportTools == true) add(ModelCapability.TOOLS)
         if (accelerators.any { it == Accelerator.NPU || it == Accelerator.TPU }) add(ModelCapability.NPU)
+        if (llmSupportSpeculativeDecoding == true) add(ModelCapability.SPECULATIVE_DECODING)
       },
       llmMaxToken = llmMaxToken,
       accelerators = accelerators,

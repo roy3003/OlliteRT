@@ -292,9 +292,69 @@ class ModelLifecycle(
       }
     } ?: return null
 
+    // Resolve the actual on-disk version: the allowlist may point to a newer commitHash
+    // but the user still has an older file from updatableModelFiles.
+    resolveOnDiskVersion(model, externalDir)
+
     // Restore persisted inference config so settings survive app/service restarts
     ModelFactory.restoreInferenceConfig(context, model)
     return model
+  }
+
+  private fun resolveOnDiskVersion(model: Model, externalDir: File) {
+    if (model.localModelFilePathOverride.isNotEmpty()) return
+    val currentPath = File(externalDir, "${model.normalizedName}/${model.version}/${model.downloadFileName}")
+    if (currentPath.exists()) {
+      Log.i(TAG, "Model '${model.name}' found at current version ${model.version}/" +
+        "${model.downloadFileName}")
+      cleanupOldVersions(model, externalDir)
+      return
+    }
+
+    for (updatable in model.updatableModelFiles) {
+      if (updatable.commitHash.isEmpty()) continue
+      val oldPath = File(externalDir, "${model.normalizedName}/${updatable.commitHash}/${updatable.fileName}")
+      if (oldPath.exists()) {
+        Log.i(TAG, "Resolved '${model.name}' to older version ${updatable.commitHash} via updatableModelFiles")
+        model.version = updatable.commitHash
+        model.downloadFileName = updatable.fileName
+        model.totalBytes = oldPath.length()
+        model.updatable = true
+        model.applyUpdateHints(context.getString(R.string.config_hint_requires_model_update))
+        return
+      }
+    }
+
+    // Last resort: scan version directories for the expected model file.
+    val modelDir = File(externalDir, model.normalizedName)
+    if (!modelDir.isDirectory) return
+    val versionDirs = modelDir.listFiles { f -> f.isDirectory } ?: return
+    for (dir in versionDirs) {
+      val candidate = File(dir, model.downloadFileName)
+      if (candidate.isFile && candidate.length() > 0) {
+        Log.w(TAG, "Resolved '${model.name}' via filesystem scan — found in ${dir.name}/" +
+          " (not in updatableModelFiles; allowlist may be incomplete)")
+        model.version = dir.name
+        model.totalBytes = candidate.length()
+        return
+      }
+    }
+  }
+
+  private fun cleanupOldVersions(model: Model, externalDir: File) {
+    for (updatable in model.updatableModelFiles) {
+      if (updatable.commitHash.isEmpty()) continue
+      val oldDir = File(externalDir, "${model.normalizedName}/${updatable.commitHash}")
+      if (oldDir.isDirectory) {
+        val sizeBytes = oldDir.listFiles()?.sumOf { it.length() } ?: 0
+        if (oldDir.deleteRecursively()) {
+          Log.i(TAG, "Deleted old model version for '${model.name}': ${updatable.commitHash} " +
+            "(freed ${sizeBytes / 1_048_576}MB)")
+        } else {
+          Log.w(TAG, "Failed to delete old model version directory: ${oldDir.absolutePath}")
+        }
+      }
+    }
   }
 
   // ── Model selection (per-request) ──────────────────────────────────────────

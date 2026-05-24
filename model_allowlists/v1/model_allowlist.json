@@ -10,13 +10,14 @@
       "modelId": "litert-community/gemma-4-E2B-it-litert-lm",
       "modelFile": "gemma-4-E2B-it.litertlm",
       "description": "A variant of Gemma 4 E2B ready for deployment on Android using [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM/blob/main/docs/api/kotlin/getting_started.md). It supports multi-modality input, with up to 32K context length.",
-      "sizeInBytes": 2583085056,
+      "sizeInBytes": 2588147712,
       "minDeviceMemoryInGb": 8,
-      "commitHash": "7fa1d78473894f7e736a21d920c3aa80f950c0db",
+      "commitHash": "6e5c4f1e395deb959c494953478fa5cec4b8008f",
       "llmSupportImage": true,
       "llmSupportAudio": true,
       "llmSupportThinking": true,
       "llmSupportTools": true,
+      "llmSupportSpeculativeDecoding": true,
       "badge": "best_overall",
       "pinned": true,
       "minAppVersion": "0.8.0",
@@ -28,20 +29,28 @@
         "maxTokens": 4000,
         "accelerators": "gpu,cpu",
         "visionAccelerator": "gpu"
-      }
+      },
+      "updatableModelFiles": [
+        {
+          "fileName": "gemma-4-E2B-it.litertlm",
+          "commitHash": "7fa1d78473894f7e736a21d920c3aa80f950c0db"
+        }
+      ],
+      "updateInfo": "The updated model leverages Gemma 4's built-in Multi Token Prediction (MTP) for faster decode. Enable or disable MTP using the speculative decoding toggle in inference settings."
     },
     {
       "name": "Gemma-4-E4B-it",
       "modelId": "litert-community/gemma-4-E4B-it-litert-lm",
       "modelFile": "gemma-4-E4B-it.litertlm",
       "description": "A variant of Gemma 4 E4B ready for deployment on Android using [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM/blob/main/docs/api/kotlin/getting_started.md). It supports multi-modality input, with up to 32K context length.",
-      "sizeInBytes": 3654467584,
+      "sizeInBytes": 3659530240,
       "minDeviceMemoryInGb": 12,
-      "commitHash": "9695417f248178c63a9f318c6e0c56cb917cb837",
+      "commitHash": "28299f30ee4d43294517a4ac93abd6163412f07f",
       "llmSupportImage": true,
       "llmSupportAudio": true,
       "llmSupportThinking": true,
       "llmSupportTools": true,
+      "llmSupportSpeculativeDecoding": true,
       "badge": "best_overall",
       "pinned": true,
       "minAppVersion": "0.8.0",
@@ -53,7 +62,14 @@
         "maxTokens": 4000,
         "accelerators": "gpu,cpu",
         "visionAccelerator": "gpu"
-      }
+      },
+      "updatableModelFiles": [
+        {
+          "fileName": "gemma-4-E4B-it.litertlm",
+          "commitHash": "9695417f248178c63a9f318c6e0c56cb917cb837"
+        }
+      ],
+      "updateInfo": "The updated model leverages Gemma 4's built-in Multi Token Prediction (MTP) for faster decode. Enable or disable MTP using the speculative decoding toggle in inference settings."
     },
     {
       "name": "Gemma-3n-E2B-it",

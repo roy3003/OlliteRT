@@ -68,6 +68,7 @@ object ModelFactory {
       defaultTemperature = info.llmConfig.defaultTemperature,
       accelerators = accelerators,
       supportThinking = info.llmConfig.supportThinking,
+      supportSpeculativeDecoding = info.llmConfig.supportSpeculativeDecoding,
     ).toMutableList()
 
     // Strip .litertlm extension for the display name shown on model cards,
@@ -89,6 +90,7 @@ object ModelFactory {
         if (info.llmConfig.supportThinking) add(ModelCapability.THINKING)
         if (info.llmConfig.supportTools) add(ModelCapability.TOOLS)
         if (accelerators.any { it == Accelerator.NPU || it == Accelerator.TPU }) add(ModelCapability.NPU)
+        if (info.llmConfig.supportSpeculativeDecoding) add(ModelCapability.SPECULATIVE_DECODING)
       },
       llmMaxToken = info.llmConfig.defaultMaxTokens,
       accelerators = accelerators,

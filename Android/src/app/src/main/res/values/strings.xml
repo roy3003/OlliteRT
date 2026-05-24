@@ -54,6 +54,7 @@
   <string name="notification_title_fail" translatable="false">Model download failed</string>
   <string name="notification_title_success" translatable="false">Model download succeeded</string>
   <string name="ok" translatable="false">OK</string>
+  <string name="enabled" translatable="false">Enabled</string>
   <string name="results" translatable="false">Results</string>
   <string name="run_benchmark" translatable="false">Run benchmark</string>
   <string name="run_benchmark_confirmation_msg" translatable="false">This process typically takes several minutes and cannot be interrupted once started. Would you like to proceed?</string>
@@ -762,6 +763,7 @@
   <string name="capability_thinking" translatable="false">Thinking</string>
   <string name="capability_tools" translatable="false">Tools</string>
   <string name="capability_npu" translatable="false">NPU</string>
+  <string name="capability_speculative_decoding" translatable="false">MTP</string>
 
   <!-- Models screen: Error/empty states -->
   <string name="models_failed_to_load" translatable="false">Failed to load models</string>
@@ -788,6 +790,7 @@
 
   <!-- Model download panel -->
   <string name="model_stop_server_for_benchmark" translatable="false">Stop the server first to run benchmarks</string>
+  <string name="model_stop_server_for_update" translatable="false">Stop the server first to update the model</string>
   <string name="model_loading_hint_wait" translatable="false">Please wait for the current model to finish loading</string>
 
   <!-- Model update -->
@@ -865,6 +868,9 @@
   <string name="inference_settings_allow_thinking">Allow Thinking</string>
   <string name="inference_settings_thinking_supported">Enables the model\'s thinking mode for step-by-step reasoning</string>
   <string name="inference_settings_thinking_unsupported">This model does not support thinking mode</string>
+  <string name="inference_settings_spec_dec_label" translatable="false">Speculative Decoding (MTP)</string>
+  <string name="inference_settings_spec_dec_supported" translatable="false">Predicts multiple tokens at once for faster decode speed without quality loss</string>
+  <string name="inference_settings_spec_dec_unsupported" translatable="false">This model does not support speculative decoding</string>
   <string name="inference_settings_accelerator">Accelerator</string>
   <string name="inference_settings_accelerator_only">This model only supports %1$s acceleration</string>
 
@@ -900,7 +906,10 @@
   <string name="config_label_support_audio" translatable="false">Support\naudio</string>
   <string name="config_label_support_thinking" translatable="false">Support\nthinking</string>
   <string name="config_label_support_tools" translatable="false">Support\ntools</string>
+  <string name="config_label_support_speculative_decoding" translatable="false">Support\nMTP</string>
   <string name="config_label_enable_thinking" translatable="false">Enable thinking</string>
+  <string name="config_label_enable_speculative_decoding" translatable="false">Speculative decoding</string>
+  <string name="config_hint_requires_model_update" translatable="false">Requires model update to take effect</string>
   <string name="config_label_accelerator" translatable="false">Accelerator</string>
   <string name="config_label_vision_accelerator" translatable="false">Vision accelerator</string>
   <string name="config_label_compatible_accelerators" translatable="false">Compatible accelerators</string>
@@ -916,6 +925,7 @@
   <string name="benchmark_stat_prefill_tokens" translatable="false">Prefill tokens</string>
   <string name="benchmark_stat_decode_tokens" translatable="false">Decode tokens</string>
   <string name="benchmark_stat_number_of_runs" translatable="false">Number of runs</string>
+  <string name="benchmark_stat_speculative_decoding" translatable="false">Speculative decoding</string>
   <string name="benchmark_stat_app_version" translatable="false">App version</string>
   <string name="benchmark_stat_prefill_speed" translatable="false">Prefill speed</string>
   <string name="benchmark_stat_decode_speed" translatable="false">Decode speed</string>

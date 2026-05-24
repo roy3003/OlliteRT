@@ -19,6 +19,7 @@ package com.ollitert.llm.server.ui.modelmanager
 
 import android.content.Context
 import android.util.Log
+import com.ollitert.llm.server.R
 import com.ollitert.llm.server.data.IMPORTS_DIR
 import com.ollitert.llm.server.data.Model
 import com.ollitert.llm.server.data.ModelDownloadStatus
@@ -121,6 +122,7 @@ class ModelFileManager(
         model.version = updatableFile.commitHash
         model.downloadFileName = updatableFile.fileName
         model.updatable = true
+        model.applyUpdateHints(context.getString(R.string.config_hint_requires_model_update))
         return true
       }
     }

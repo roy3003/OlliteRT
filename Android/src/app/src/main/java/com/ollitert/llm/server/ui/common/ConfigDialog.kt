@@ -296,8 +296,25 @@ fun NumberSliderRow(config: NumberSliderConfig, values: SnapshotStateMap<String,
 fun BooleanSwitchRow(config: BooleanSwitchConfig, values: SnapshotStateMap<String, Any>) {
   val switchValue = values[config.key.id] as? Boolean ?: false
   Column(modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}) {
-    Text(stringResource(config.key.labelResId), style = MaterialTheme.typography.titleSmall)
-    Switch(checked = switchValue, onCheckedChange = { values[config.key.id] = it })
+    Text(
+      stringResource(config.key.labelResId),
+      style = MaterialTheme.typography.titleSmall,
+      color = if (config.enabled) MaterialTheme.colorScheme.onSurface
+        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+    )
+    config.subtitle?.let {
+      Text(
+        text = it,
+        style = MaterialTheme.typography.bodySmall,
+        color = if (config.enabled) MaterialTheme.colorScheme.onSurfaceVariant
+          else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+      )
+    }
+    Switch(
+      checked = switchValue && config.enabled,
+      onCheckedChange = { values[config.key.id] = it },
+      enabled = config.enabled,
+    )
   }
 }
 

@@ -22,6 +22,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.ExperimentalApi
+import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.benchmark
 import com.ollitert.llm.server.BuildConfig
 import com.ollitert.llm.server.R
@@ -116,6 +117,7 @@ constructor(
     prefillTokens: Int,
     decodeTokens: Int,
     runCount: Int,
+    speculativeDecoding: Boolean = false,
   ) {
     val serverActive = ServerMetrics.status.value.let { it == ServerStatus.RUNNING || it == ServerStatus.LOADING }
     if (serverActive) {
@@ -135,10 +137,12 @@ constructor(
           "- prefill tokens: $prefillTokens",
           "- decode tokens: $decodeTokens",
           "- runs: $runCount",
+          "- speculative decoding: $speculativeDecoding",
         )
       Log.d(TAG, "Running benchmark: ${parts.joinToString("\n")}")
 
       try {
+      ExperimentalFlags.enableSpeculativeDecoding = speculativeDecoding
       val startMs = System.currentTimeMillis()
       val prefillSpeeds = mutableListOf<Double>()
       val decodeSpeeds = mutableListOf<Double>()
@@ -205,6 +209,7 @@ constructor(
           .setDecodeTokens(decodeTokens)
           .setNumberOfRuns(runCount)
           .setAppVersion(BuildConfig.VERSION_NAME)
+          .setSpeculativeDecoding(speculativeDecoding)
           .build()
       val stats =
         LlmBenchmarkStats.newBuilder()
@@ -239,6 +244,7 @@ constructor(
         }
         _uiState.update { it.copy(errorMessage = userMsg) }
       } finally {
+        ExperimentalFlags.enableSpeculativeDecoding = false
         setRunning(running = false)
       }
     }

@@ -341,8 +341,9 @@ fun BenchmarkResultsViewer(
                     }
                     result.benchmarkResult.llmResult?.let { llmResult ->
                       val modelName = llmResult.basicInfo.modelName
+                      val titleSuffix = if (llmResult.basicInfo.speculativeDecoding) " · MTP" else ""
                       Accordions(
-                        title = "$modelName · ${llmResult.basicInfo.accelerator}",
+                        title = "$modelName · ${llmResult.basicInfo.accelerator}$titleSuffix",
                         subtitle =
                           SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
                             .format(Date(llmResult.basicInfo.startMs)),
@@ -415,6 +416,12 @@ fun BenchmarkResultsViewer(
                                 label = stringResource(R.string.benchmark_stat_number_of_runs),
                                 value = "${llmResult.basicInfo.numberOfRuns}",
                               )
+                              if (llmResult.basicInfo.speculativeDecoding) {
+                                StatRow(
+                                  label = stringResource(R.string.benchmark_stat_speculative_decoding),
+                                  value = stringResource(R.string.enabled),
+                                )
+                              }
                               StatRow(label = stringResource(R.string.benchmark_stat_app_version), value = llmResult.basicInfo.appVersion)
                             }
                           }
@@ -955,6 +962,7 @@ private fun getBenchmarkResultCsv(llmResult: LlmBenchmarkResult, aggregation: Ag
         "end time (ms)",
         "model name",
         "accelerator",
+        "speculative decoding",
         "prefill tokens count",
         "decode tokens count",
         "runs count",
@@ -973,6 +981,7 @@ private fun getBenchmarkResultCsv(llmResult: LlmBenchmarkResult, aggregation: Ag
         basicInfo.endMs,
         basicInfo.modelName,
         basicInfo.accelerator,
+        basicInfo.speculativeDecoding,
         basicInfo.prefillTokens,
         basicInfo.decodeTokens,
         basicInfo.numberOfRuns,

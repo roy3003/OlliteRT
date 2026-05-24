@@ -67,6 +67,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ollitert.llm.server.R
 import com.ollitert.llm.server.data.Accelerator
+import com.ollitert.llm.server.data.BooleanSwitchConfig
 import com.ollitert.llm.server.data.Config
 import com.ollitert.llm.server.data.ConfigKey
 import com.ollitert.llm.server.data.ConfigKeys
@@ -75,6 +76,7 @@ import com.ollitert.llm.server.data.NumberSliderConfig
 import com.ollitert.llm.server.data.SegmentedButtonConfig
 import com.ollitert.llm.server.data.ValueType
 import com.ollitert.llm.server.data.convertValueToTargetType
+import com.ollitert.llm.server.data.llmSupportSpeculativeDecoding
 import com.ollitert.llm.server.data.preferredAcceleratorOrder
 import com.ollitert.llm.server.ui.common.ConfigEditorsPanel
 import com.ollitert.llm.server.ui.common.SMALL_BUTTON_CONTENT_PADDING
@@ -142,6 +144,18 @@ fun BenchmarkScreen(
             valueType = ValueType.INT,
           )
         )
+        if (selectedModel.llmSupportSpeculativeDecoding) {
+          val specDecConfig = BooleanSwitchConfig(
+            key = ConfigKeys.ENABLE_SPECULATIVE_DECODING,
+            defaultValue = false,
+          )
+          if (selectedModel.updatable) {
+            specDecConfig.enabled = false
+            specDecConfig.subtitle = selectedModel.configs
+              .find { it.key == ConfigKeys.ENABLE_SPECULATIVE_DECODING }?.subtitle
+          }
+          add(specDecConfig)
+        }
       }
     }
 
@@ -315,6 +329,7 @@ fun BenchmarkScreen(
               prefillTokens = getIntConfigValue(values = values, key = ConfigKeys.PREFILL_TOKENS),
               decodeTokens = getIntConfigValue(values = values, key = ConfigKeys.DECODE_TOKENS),
               runCount = getIntConfigValue(values = values, key = ConfigKeys.NUMBER_OF_RUNS),
+              speculativeDecoding = getBoolConfigValue(values = values, key = ConfigKeys.ENABLE_SPECULATIVE_DECODING),
             )
             showRunBenchmarkConfirmationDialog = false
           },
@@ -367,4 +382,8 @@ private fun getStringConfigValue(values: Map<String, Any>, key: ConfigKey): Stri
 private fun getIntConfigValue(values: Map<String, Any>, key: ConfigKey): Int {
   return convertValueToTargetType(value = values.get(key.id) ?: 0, valueType = ValueType.INT)
     as? Int ?: 0
+}
+
+private fun getBoolConfigValue(values: Map<String, Any>, key: ConfigKey): Boolean {
+  return values[key.id] as? Boolean ?: false
 }

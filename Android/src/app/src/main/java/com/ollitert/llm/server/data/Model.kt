@@ -29,6 +29,7 @@ enum class ModelCapability {
   THINKING,
   TOOLS,
   NPU,
+  SPECULATIVE_DECODING,
 }
 
 /** A previous version of a model file, used to detect updatable models on disk. */
@@ -272,6 +273,12 @@ data class Model(
     this.totalBytes = this.sizeInBytes + this.extraDataFiles.sumOf { it.sizeInBytes }
   }
 
+  fun applyUpdateHints(hint: String) {
+    for (config in configs) {
+      if (config.requiresModelUpdate) config.subtitle = hint
+    }
+  }
+
   fun getPath(context: Context, fileName: String = downloadFileName): String {
     val externalDir = context.getExternalFilesDir(null)?.absolutePath
       ?: throw IllegalStateException("External storage unavailable — cannot access model files")
@@ -327,6 +334,7 @@ val Model.llmSupportImage: Boolean get() = ModelCapability.VISION in capabilitie
 val Model.llmSupportAudio: Boolean get() = ModelCapability.AUDIO in capabilities
 val Model.llmSupportThinking: Boolean get() = ModelCapability.THINKING in capabilities
 val Model.llmSupportsNpu: Boolean get() = ModelCapability.NPU in capabilities
+val Model.llmSupportSpeculativeDecoding: Boolean get() = ModelCapability.SPECULATIVE_DECODING in capabilities
 
 /** Max context tokens from the model's live [configValues], or null if not configured. */
 val Model.maxContextTokens: Int?
@@ -335,6 +343,9 @@ val Model.maxContextTokens: Int?
 /** Whether thinking is both supported by the model and enabled in the current config. */
 val Model.isThinkingEnabled: Boolean
   get() = llmSupportThinking && configValues.configThinkingEnabled() != false
+
+val Model.isSpeculativeDecodingEnabled: Boolean
+  get() = llmSupportSpeculativeDecoding && configValues.configSpeculativeDecodingEnabled() == true
 
 enum class ModelDownloadStatusType {
   NOT_DOWNLOADED,

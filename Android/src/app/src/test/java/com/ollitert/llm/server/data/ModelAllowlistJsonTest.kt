@@ -524,4 +524,49 @@ class ModelAllowlistJsonTest {
     val filtered = allowlist.filterCompatible(SemVer(1, 0, 0))
     assertEquals(3, filtered.contentVersion)
   }
+
+  // --- llmSupportSpeculativeDecoding ---
+
+  @Test
+  fun decodesLlmSupportSpeculativeDecoding() {
+    val json = """
+      {
+        "models": [
+          {
+            "name": "Gemma-4-E2B-it",
+            "modelId": "litert-community/gemma-4-E2B-it-litert-lm",
+            "modelFile": "gemma-4-E2B-it.litertlm",
+            "description": "test",
+            "sizeInBytes": 2588147712,
+            "defaultConfig": {},
+            "llmSupportSpeculativeDecoding": true
+          }
+        ]
+      }
+    """.trimIndent()
+
+    val allowlist = ModelAllowlistJson.decode(json)
+    assertTrue(allowlist.models.first().llmSupportSpeculativeDecoding == true)
+  }
+
+  @Test
+  fun llmSupportSpeculativeDecodingDefaultsToNull() {
+    val json = """
+      {
+        "models": [
+          {
+            "name": "Minimal",
+            "modelId": "test/minimal",
+            "modelFile": "minimal.litertlm",
+            "description": "test",
+            "sizeInBytes": 100,
+            "defaultConfig": {}
+          }
+        ]
+      }
+    """.trimIndent()
+
+    val allowlist = ModelAllowlistJson.decode(json)
+    assertEquals(null, allowlist.models.first().llmSupportSpeculativeDecoding)
+  }
 }

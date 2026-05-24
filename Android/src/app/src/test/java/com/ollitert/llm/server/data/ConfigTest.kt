@@ -229,4 +229,30 @@ class ConfigTest {
     assertTrue("NPU max_tokens should be LabelConfig (no slider)", maxTokensConfig is LabelConfig)
   }
 
+  // ── createLlmChatConfigs() — speculative decoding toggle ─────────────────
+
+  @Test
+  fun createLlmChatConfigsDefaultHasNoSpeculativeDecodingToggle() {
+    val configs = createLlmChatConfigs(supportSpeculativeDecoding = false)
+    val keyIds = configs.map { it.key.id }
+    assertFalse("should not contain enable_speculative_decoding", keyIds.contains("enable_speculative_decoding"))
+  }
+
+  @Test
+  fun createLlmChatConfigsWithSpeculativeDecodingAddsToggle() {
+    val configs = createLlmChatConfigs(supportSpeculativeDecoding = true)
+    val keyIds = configs.map { it.key.id }
+    assertTrue("should contain enable_speculative_decoding", keyIds.contains("enable_speculative_decoding"))
+    val specDecConfig = configs.first { it.key.id == "enable_speculative_decoding" }
+    assertTrue("spec dec config should be BooleanSwitch", specDecConfig is BooleanSwitchConfig)
+    assertEquals(false, specDecConfig.defaultValue)
+  }
+
+  @Test
+  fun createLlmChatConfigsSpeculativeDecodingRequiresReinitialization() {
+    val configs = createLlmChatConfigs(supportSpeculativeDecoding = true)
+    val specDecConfig = configs.first { it.key.id == "enable_speculative_decoding" }
+    assertTrue("speculative decoding toggle should require reinitialization", specDecConfig.needReinitialization)
+  }
+
 }
