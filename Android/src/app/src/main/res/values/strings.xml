@@ -83,7 +83,8 @@
   <string name="models_hidden_by_version" translatable="false">%1$s hidden — requires a newer app version</string>
   <string name="retry" translatable="false">Retry</string>
   <string name="wifi_warning_title" translatable="false">No Wi-Fi Connection</string>
-  <string name="wifi_warning_content" translatable="false">The server needs Wi-Fi to accept connections from other devices. You can still start the server, but it will only be reachable via localhost.</string>
+  <string name="wifi_warning_content_prefix" translatable="false">"The server can\'t accept connections from other devices on the network without Wi-Fi. It will still be reachable on this device at "</string>
+  <string name="wifi_warning_content_suffix" translatable="false">" — useful for on-device clients like Termux."</string>
   <string name="wifi_warning_start_anyway" translatable="false">Start anyway</string>
   <string name="view_results" translatable="false">View results</string>
   <plurals name="runs" translatable="false">
@@ -467,6 +468,7 @@
   <!-- Status: Endpoint card -->
   <string name="status_active_api_endpoint" translatable="false">Active API Endpoint</string>
   <string name="status_endpoint_placeholder" translatable="false">—</string>
+  <string name="status_endpoint_loopback_only" translatable="false">Loopback only — reachable from this device only (no Wi-Fi)</string>
   <string name="status_copy_endpoint_tooltip" translatable="false">Copy endpoint URL</string>
   <string name="status_open_endpoint" translatable="false">Open endpoint in browser</string>
   <string name="status_auth_cors" translatable="false">Auth: %1$s · CORS: %2$s</string>

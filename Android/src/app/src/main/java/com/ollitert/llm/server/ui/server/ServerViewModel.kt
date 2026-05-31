@@ -45,6 +45,7 @@ class ServerViewModel @Inject constructor(
   val activeModelSize = ServerMetrics.activeModelSize
   val port = ServerMetrics.port
   val bindAddress = ServerMetrics.bindAddress
+  val isLoopbackOnly = ServerMetrics.isLoopbackOnly
   val startedAtMs = ServerMetrics.startedAtMs
   val requestCount = ServerMetrics.requestCount
   val tokensGenerated = ServerMetrics.tokensGenerated
