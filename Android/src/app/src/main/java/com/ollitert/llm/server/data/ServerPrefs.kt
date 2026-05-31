@@ -977,7 +977,8 @@ internal fun decodeInferenceConfig(jsonStr: String?): Map<String, Any>? {
       }
     }
     migrateConfigKeys(result)
-  } catch (_: Exception) {
+  } catch (e: Exception) {
+    Log.w(TAG, "decodeInferenceConfig: malformed JSON, falling back to null", e)
     null
   }
 }
