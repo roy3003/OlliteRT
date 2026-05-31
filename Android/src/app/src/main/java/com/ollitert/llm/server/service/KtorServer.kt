@@ -390,6 +390,13 @@ class KtorServer(
       }
     }
 
+    post("/v1/messages/count_tokens") {
+      if (!requireAuth(call)) return@post
+      withRequestLogging(call) { body, captureBody, captureResponse, logId, _, prefs ->
+        anthropicEndpointHandlers.handleCountTokens(body, captureBody, captureResponse, logId, prefs)
+      }
+    }
+
     // ── Server control endpoints ──
     // IMPORTANT: When adding new /v1/server/* endpoints, also update the HA YAML
     // template in HomeAssistantCard.kt (haConfig buildString block) with the new rest_command.

@@ -111,6 +111,49 @@ class AnthropicEndpointHandlers(
   }
 
   /**
+   * `POST /v1/messages/count_tokens` — estimate input tokens for a request body.
+   *
+   * Intentionally skips model selection: the Anthropic spec lets clients call this
+   * with no model loaded, and Claude Code does so before the first inference. The
+   * estimate uses the same charLen/4 heuristic as the rest of the server.
+   */
+  suspend fun handleCountTokens(
+    body: String,
+    captureBody: (String) -> Unit = {},
+    captureResponse: (String) -> Unit = {},
+    @Suppress("UNUSED_PARAMETER") logId: String? = null,
+    @Suppress("UNUSED_PARAMETER") prefs: RequestPrefsSnapshot = RequestPrefsSnapshot(),
+  ): HttpResponse {
+    captureBody(body)
+    val anthropicReq = try {
+      AnthropicConverter.parseRequest(json, body)
+    } catch (e: AnthropicConversionError) {
+      return httpAnthropicError(400, e.errorType, e.message)
+    }
+    // count_tokens accepts the same body as /v1/messages but max_tokens is not required.
+    val converted = try {
+      AnthropicConverter.toInternalChatRequest(
+        anthropicReq.copy(max_tokens = anthropicReq.max_tokens ?: 1)
+      )
+    } catch (e: AnthropicConversionError) {
+      return httpAnthropicError(400, e.errorType, e.message)
+    }
+
+    val tools = converted.tools.orEmpty()
+    val toolChoiceStr = PromptBuilder.resolveToolChoice(converted.tool_choice)
+    val prompt = if (tools.isNotEmpty() && toolChoiceStr != "none") {
+      PromptBuilder.buildToolAwarePrompt(converted.messages, tools, toolChoiceStr, chatTemplate = null)
+    } else {
+      PromptBuilder.buildChatPrompt(converted.messages, chatTemplate = null)
+    }
+
+    val tokens = estimateTokens(prompt)
+    val responseJson = """{"input_tokens":$tokens}"""
+    captureResponse(responseJson)
+    return httpOkJson(responseJson)
+  }
+
+  /**
    * Re-shape the OAI [HttpResponse.Json] returned by [EndpointHandlers.runChatCompletion]
    * into the Anthropic envelope. Error responses (status != 200) are converted to the
    * Anthropic error shape; success bodies go through the message converter.
