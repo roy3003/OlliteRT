@@ -132,6 +132,10 @@ class EndpointHandlers(
     suppressPerModelSystem: Boolean = false,
     bodyLength: Int = 0,
     endpoint: String = "/v1/chat/completions",
+    // When true the streaming branch returns an Anthropic SSE response built by
+    // streamMessagesLlm instead of the OAI streamChatLlm. The non-stream branch
+    // is unaffected — the Anthropic handler re-shapes the OAI JSON response itself.
+    useAnthropicStream: Boolean = false,
   ): HttpResponse {
     val requestId = nextRequestId()
     validateNParam(req.n)?.let { (param, msg) ->
@@ -211,7 +215,28 @@ class EndpointHandlers(
 
     val stopSeqs = req.stop.ifEmpty { null }
     return if (req.stream == true) {
-      inferenceRunner.streamChatLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, includeUsage = includeUsage, stopSequences = stopSeqs, tools = if (hasTools) tools else null, configSnapshot = sampler, json = json, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, suppressPerModelSystem = suppressPerModelSystem)
+      if (useAnthropicStream) {
+        inferenceRunner.streamMessagesLlm(
+          model = model,
+          prompt = prompt,
+          requestId = requestId,
+          endpoint = endpoint,
+          timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context),
+          images = images,
+          audioClips = audioClips,
+          logId = logId,
+          stopSequences = stopSeqs,
+          tools = if (hasTools) tools else null,
+          configSnapshot = sampler,
+          prefs = prefs,
+          schemaInjectionProviders = schemaInjectionProviders,
+          schemaInjectionMessages = schemaInjectionMessages,
+          suppressPerModelSystem = suppressPerModelSystem,
+          requestModelId = requestedId,
+        )
+      } else {
+        inferenceRunner.streamChatLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, includeUsage = includeUsage, stopSequences = stopSeqs, tools = if (hasTools) tools else null, configSnapshot = sampler, json = json, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, suppressPerModelSystem = suppressPerModelSystem)
+      }
     } else {
       ServerMetrics.onInferenceStarted()
       var schemaInjectionToolCalls: List<ToolCall> = emptyList()

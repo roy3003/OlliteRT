@@ -422,7 +422,7 @@
   <string name="settings_card_advanced_settings" translatable="false">Advanced Settings</string>
   <string name="settings_advanced_timeouts_section" translatable="false">Timeouts</string>
   <string name="settings_timeout_chat_completions_label" translatable="false">Chat completions timeout</string>
-  <string name="settings_timeout_chat_completions_desc" translatable="false">Maximum time for /v1/chat/completions requests</string>
+  <string name="settings_timeout_chat_completions_desc" translatable="false">Maximum time for /v1/chat/completions and /v1/messages requests</string>
   <string name="settings_timeout_responses_label" translatable="false">Responses timeout</string>
   <string name="settings_timeout_responses_desc" translatable="false">Maximum time for /v1/responses requests</string>
   <string name="settings_timeout_streaming_label" translatable="false">Streaming timeout</string>
@@ -1084,7 +1084,7 @@
 
   <!-- ErrorSuggestions: recovery suggestions -->
   <string name="suggestion_context_overflow">Try enabling prompt compaction (Truncate History, Compact Tool Schemas, or Trim Prompt) in OlliteRT Settings, or send shorter prompts.</string>
-  <string name="suggestion_timeout">Try sending a shorter prompt or restarting the server.</string>
+  <string name="suggestion_timeout">Increase \"Chat completions timeout\" in OlliteRT Settings → Advanced Settings, send a shorter prompt, or restart the server.</string>
   <string name="suggestion_model_not_found">Check the Models screen for available downloaded models.</string>
   <string name="suggestion_model_files_missing">The model files may have been deleted. Try re-downloading the model from the Models screen.</string>
   <string name="suggestion_port_bind_failure">The port is already in use by another app. Close the app occupying the port or change the port number in Settings.</string>

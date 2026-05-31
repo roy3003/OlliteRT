@@ -51,16 +51,6 @@ class AnthropicEndpointHandlers(
       return httpAnthropicError(400, e.errorType, e.message)
     }
 
-    if (anthropicReq.stream == true) {
-      // Streaming wire-up lands in the AnthropicMessagesFormat phase. Until then
-      // we surface a clear, actionable error instead of silently degrading.
-      return httpAnthropicError(
-        400,
-        "invalid_request_error",
-        "Streaming /v1/messages is not yet supported on this build. Set stream:false.",
-      )
-    }
-
     val convertedReq = try {
       AnthropicConverter.toInternalChatRequest(anthropicReq)
     } catch (e: AnthropicConversionError) {
@@ -102,10 +92,19 @@ class AnthropicEndpointHandlers(
       suppressPerModelSystem = anthropicReq.system != null,
       bodyLength = body.length,
       endpoint = "/v1/messages",
+      useAnthropicStream = anthropicReq.stream == true,
     )
 
     return when (response) {
-      is HttpResponse.Json -> reshapeJsonResponse(response, anthropicReq.model ?: "local", requestId, matchedStopRef[0])
+      is HttpResponse.Json -> {
+        // Non-streaming or error path. 200 bodies need re-shape; non-200 bodies that
+        // already came from runChatCompletion may be OAI-shaped errors — re-shape
+        // those into Anthropic envelopes here.
+        if (anthropicReq.stream == true) response  // selectModel error before stream — OAI shape acceptable
+        else reshapeJsonResponse(response, anthropicReq.model ?: "local", requestId, matchedStopRef[0])
+      }
+      // SSE responses already carry Anthropic-shaped events because runChatCompletion
+      // dispatched to streamMessagesLlm when useAnthropicStream was true.
       else -> response
     }
   }
