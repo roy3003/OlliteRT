@@ -64,6 +64,7 @@ import io.ktor.server.response.respondText
 import io.ktor.server.response.respondTextWriter
 import io.ktor.server.routing.Routing
 import io.ktor.server.routing.get
+import io.ktor.server.routing.head
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.Dispatchers
@@ -317,6 +318,17 @@ class KtorServer(
     get("/") { handleServerInfo(call) }
     get("/v1") { handleServerInfo(call) }
     get("/api/version") { handleServerInfo(call) }
+
+    // HEAD probes used by Anthropic/OpenAI clients (Claude Code, curl -I, monitors)
+    // to liveness-check the base URL before issuing real requests. RFC 7231 §4.3.2:
+    // HEAD must succeed wherever GET succeeds. Ktor does not auto-derive HEAD from
+    // GET, so register them explicitly. respond with 200 + Content-Type only — Ktor
+    // strips the body from a HEAD response.
+    head("/") { call.respondHttpResponse(httpOkJson("")) }
+    head("/v1") { call.respondHttpResponse(httpOkJson("")) }
+    head("/ping") { call.respondHttpResponse(httpOkJson("")) }
+    head("/health") { call.respondHttpResponse(httpOkJson("")) }
+    head("/v1/health") { call.respondHttpResponse(httpOkJson("")) }
 
     get("/metrics") {
       withGetLogging(call) {

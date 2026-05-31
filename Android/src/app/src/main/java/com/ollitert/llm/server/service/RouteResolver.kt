@@ -49,7 +49,7 @@ data class Route(
 
 object RouteResolver {
   fun isSupportedMethod(method: String): Boolean {
-    return method == "GET" || method == "POST" || method == "OPTIONS"
+    return method == "GET" || method == "POST" || method == "OPTIONS" || method == "HEAD"
   }
 
   fun resolve(method: String, rawUri: String): Route? {
