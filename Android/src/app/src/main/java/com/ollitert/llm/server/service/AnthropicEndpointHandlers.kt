@@ -56,6 +56,7 @@ class AnthropicEndpointHandlers(
     } catch (e: AnthropicConversionError) {
       return httpAnthropicError(400, e.errorType, e.message)
     }
+    ServerMetrics.incrementMessagesRequests()
 
     val requestId = nextRequestId()
     val matchedStopRef = arrayOf<String?>(null)

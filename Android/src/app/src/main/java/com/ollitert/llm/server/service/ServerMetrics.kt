@@ -105,6 +105,17 @@ object ServerMetrics {
   private val _audioRequestsFlow = sessionFlow(0L)
   val audioRequests: StateFlow<Long> = _audioRequestsFlow.asStateFlow()
 
+  // Anthropic /v1/messages requests — counted in addition to the modality counter so
+  // operators can see how many of their text requests come through the Anthropic API
+  // versus the OpenAI API. Bumped from the Anthropic handler, not from recordModality.
+  private val _messagesRequests = sessionAtomic()
+  private val _messagesRequestsFlow = sessionFlow(0L)
+  val messagesRequests: StateFlow<Long> = _messagesRequestsFlow.asStateFlow()
+
+  fun incrementMessagesRequests() {
+    _messagesRequestsFlow.value = _messagesRequests.incrementAndGet()
+  }
+
   // Time to first token (TTFB) tracking
   private val _lastTtfbMs = sessionFlow(0L)
   val lastTtfbMs: StateFlow<Long> = _lastTtfbMs.asStateFlow()
