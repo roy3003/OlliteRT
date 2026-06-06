@@ -102,6 +102,7 @@
   <string name="cd_import_model_from_local_file_button">Import model from local file</string>
   <string name="cd_navigate_back_icon">Go back</string>
   <string name="cd_stop_icon">Stop</string>
+  <string name="cd_retry_download_icon">Retry download</string>
   <string name="cd_downloaded_icon">Downloaded</string>
   <string name="cd_not_downloaded_icon">Not downloaded</string>
   <string name="cd_downloading_icon">Downloading</string>
