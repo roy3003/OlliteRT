@@ -195,9 +195,22 @@ internal suspend fun exportLogcat(context: Context) {
       val process = ProcessBuilder("logcat", "-d", "-v", "threadtime")
         .redirectErrorStream(true)
         .start()
-      // Stream directly from process to file to avoid holding the entire buffer in memory
-      process.inputStream.use { input ->
-        f.outputStream().use { output -> input.copyTo(output) }
+      // Stream directly from process to file to avoid holding the entire buffer in memory.
+      // Prepend a version header so bug reports always carry build identifiers even when
+      // the dump is pasted in fragments.
+      f.outputStream().use { output ->
+        val header = buildString {
+          appendLine("=== OlliteRT logcat export ===")
+          appendLine("exported_at: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}")
+          appendLine("app_version: ${BuildConfig.VERSION_NAME}")
+          appendLine("app_version_code: ${BuildConfig.VERSION_CODE}")
+          appendLine("app_flavor: ${BuildConfig.FLAVOR}")
+          appendLine("app_build_type: ${BuildConfig.BUILD_TYPE}")
+          appendLine("app_git_hash: ${BuildConfig.GIT_HASH}")
+          appendLine("==============================")
+        }
+        output.write(header.toByteArray(Charsets.UTF_8))
+        process.inputStream.use { input -> input.copyTo(output) }
       }
       if (!process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) {
         process.destroyForcibly()
