@@ -21,6 +21,7 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import com.ollitert.llm.server.BuildConfig
 import com.ollitert.llm.server.R
 import com.ollitert.llm.server.common.copyToClipboard
 import com.ollitert.llm.server.service.RequestLogEntry
@@ -99,6 +100,11 @@ internal fun buildLogsJson(entries: List<RequestLogEntry>): String {
   val root = buildJsonObject {
     put("exported_at", formatTimestamp(System.currentTimeMillis()))
     put("app", "OlliteRT")
+    put("app_version", BuildConfig.VERSION_NAME)
+    put("app_version_code", BuildConfig.VERSION_CODE)
+    put("app_flavor", BuildConfig.FLAVOR)
+    put("app_build_type", BuildConfig.BUILD_TYPE)
+    put("app_git_hash", BuildConfig.GIT_HASH)
     put("entry_count", entries.size)
     put("entries", buildJsonArray {
       for (entry in entries) {
