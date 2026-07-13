@@ -26,6 +26,7 @@ import com.ollitert.llm.server.data.MIN_TEMPERATURE
 import com.ollitert.llm.server.data.MIN_TOPK
 import com.ollitert.llm.server.data.MIN_TOPP
 import com.ollitert.llm.server.data.Model
+import com.ollitert.llm.server.data.SAMPLER_SEED_CONFIG_KEY
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -40,6 +41,12 @@ class BuildPerRequestConfigTest {
   @Test
   fun returnsNullWhenAllParamsNull() {
     assertNull(buildPerRequestConfig(model()))
+  }
+
+  @Test
+  fun seedOnlyCreatesConfigSnapshot() {
+    val result = buildPerRequestConfig(model(), seed = 1234)!!
+    assertEquals(1234, result[SAMPLER_SEED_CONFIG_KEY])
   }
 
   // ── Temperature clamping ──────────────────────────────────────────────────
@@ -173,5 +180,19 @@ class BuildPerRequestConfigTest {
     assertEquals(0.5f, result[ConfigKeys.TEMPERATURE.id])
     assertEquals(30, result[ConfigKeys.TOPK.id])
     assertEquals(0.9f, result[ConfigKeys.TOPP.id])
+  }
+
+  @Test
+  fun seedPreservesExistingSamplerValues() {
+    val existing = mapOf(
+      ConfigKeys.TEMPERATURE.id to 0.5f,
+      ConfigKeys.TOPK.id to 30,
+      ConfigKeys.TOPP.id to 0.8f,
+    )
+    val result = buildPerRequestConfig(model(existing), seed = 42)!!
+    assertEquals(0.5f, result[ConfigKeys.TEMPERATURE.id])
+    assertEquals(30, result[ConfigKeys.TOPK.id])
+    assertEquals(0.8f, result[ConfigKeys.TOPP.id])
+    assertEquals(42, result[SAMPLER_SEED_CONFIG_KEY])
   }
 }

@@ -18,8 +18,10 @@
 package com.ollitert.llm.server.service
 
 import android.content.Context
+import com.ollitert.llm.server.data.Accelerator
 import com.ollitert.llm.server.data.ConfigKeys
 import com.ollitert.llm.server.data.RequestPrefsSnapshot
+import com.ollitert.llm.server.data.SAMPLER_SEED_CONFIG_KEY
 import com.ollitert.llm.server.data.MAX_MAX_TOKENS
 import com.ollitert.llm.server.data.MAX_TEMPERATURE
 import com.ollitert.llm.server.data.MAX_TOPK
@@ -236,7 +238,7 @@ class EndpointHandlers(
       ServerPrefs.isForceStreamUsage(context)
     val effectiveMaxTokens = req.max_completion_tokens ?: req.max_tokens
 
-    val sampler = resolveSamplerOverrides(model, prefs, req.temperature, req.top_p, req.top_k, effectiveMaxTokens, logId)
+    val sampler = resolveSamplerOverrides(model, prefs, req.temperature, req.top_p, req.top_k, effectiveMaxTokens, req.seed, logId)
 
     val stopSeqs = req.stop.ifEmpty { null }
     val incrementalUserText = if (incrementalDecision.kind == IncrementalDecision.Kind.EXTEND) {
@@ -374,8 +376,16 @@ class EndpointHandlers(
       else -> null
     }
 
-    val sampler = resolveSamplerOverrides(model, prefs, req.temperature, req.top_p, topK = null, req.max_tokens, logId)
-
+    val sampler = resolveSamplerOverrides(
+      model = model,
+      prefs = prefs,
+      temperature = req.temperature,
+      topP = req.top_p,
+      topK = null,
+      maxTokens = req.max_tokens,
+      seed = req.seed,
+      logId = logId,
+    )
     val includeUsage = req.stream_options?.include_usage == true ||
       ServerPrefs.isForceStreamUsage(context)
     val stopSeqs = stopSequences?.ifEmpty { null }
@@ -458,7 +468,7 @@ class EndpointHandlers(
     val useSchemaInjectionResp = hasTools && prefs.schemaInjectionToolCalling
     val schemaInjectionProvidersResp = if (useSchemaInjectionResp) SchemaInjectionBridge.toolSpecsToProviders(tools) else emptyList()
 
-    val sampler = resolveSamplerOverrides(model, prefs, req.temperature, req.top_p, req.top_k, req.max_output_tokens, logId)
+    val sampler = resolveSamplerOverrides(model, prefs, req.temperature, req.top_p, req.top_k, req.max_output_tokens, req.seed, logId)
 
     return if (req.stream == true) {
       inferenceRunner.streamLlm(model, prompt, requestId, "/v1/responses", timeoutSeconds = ServerPrefs.getTimeoutResponses(context), logId = logId, configSnapshot = sampler, json = json, tools = if (hasTools) tools else null, prefs = prefs, schemaInjectionProviders = schemaInjectionProvidersResp)
@@ -599,6 +609,7 @@ internal fun resolveSamplerOverrides(
   topP: Double?,
   topK: Int?,
   maxTokens: Int?,
+  seed: Int?,
   logId: String?,
 ): Map<String, Any>? {
   val ignore = prefs.ignoreClientSamplerParams
@@ -606,23 +617,47 @@ internal fun resolveSamplerOverrides(
   val effectiveTopP = topP.takeUnless { ignore }
   val effectiveTopK = topK.takeUnless { ignore }
   val effectiveMaxTokens = maxTokens.takeUnless { ignore }
+  val effectiveSeed = seed.takeUnless { ignore }
   if (ignore && logId != null) {
-    val ignored = describeClientSamplerParams(temperature, topP, topK, maxTokens)
+    val ignored = describeClientSamplerParams(temperature, topP, topK, maxTokens, seed)
     if (ignored != null) RequestLogStore.update(logId) { it.copy(ignoredClientParams = ignored) }
   }
-  return buildPerRequestConfig(model, effectiveTemp, effectiveTopP, effectiveTopK, effectiveMaxTokens)
+  if (!ignore && logId != null && model.isGpuBackend() && hasSamplerParams(temperature, topP, topK, maxTokens, seed)) {
+    RequestLogStore.addEvent(
+      "Sampler params may be ignored on GPU backend",
+      level = LogLevel.WARNING,
+      modelName = model.name,
+      category = EventCategory.SERVER,
+      body = "LiteRT-LM 0.11.0 behaves deterministically on the GPU conversation path even when " +
+        "temperature/top_p/top_k/seed are passed to SamplerConfig. Select CPU accelerator for sampler-sensitive requests.",
+    )
+  }
+  return buildPerRequestConfig(model, effectiveTemp, effectiveTopP, effectiveTopK, effectiveMaxTokens, effectiveSeed)
 }
+
+private fun hasSamplerParams(
+  temperature: Double?,
+  topP: Double?,
+  topK: Int?,
+  maxTokens: Int?,
+  seed: Int?,
+): Boolean = temperature != null || topP != null || topK != null || maxTokens != null || seed != null
+
+private fun Model.isGpuBackend(): Boolean =
+  getStringConfigValue(key = ConfigKeys.ACCELERATOR, defaultValue = Accelerator.GPU.label) == Accelerator.GPU.label
 
 internal fun describeClientSamplerParams(
   temperature: Double?,
   topP: Double?,
   topK: Int?,
   maxTokens: Int?,
+  seed: Int? = null,
 ): String? = listOfNotNull(
   temperature?.let { "temperature=$it" },
   topP?.let { "top_p=$it" },
   topK?.let { "top_k=$it" },
   maxTokens?.let { "max_tokens=$it" },
+  seed?.let { "seed=$it" },
 ).joinToString(", ").ifEmpty { null }
 
 /**
@@ -638,12 +673,14 @@ internal fun buildPerRequestConfig(
   topP: Double? = null,
   topK: Int? = null,
   maxTokens: Int? = null,
+  seed: Int? = null,
 ): Map<String, Any>? {
-  if (temperature == null && topP == null && topK == null && maxTokens == null) return null
+  if (temperature == null && topP == null && topK == null && maxTokens == null && seed == null) return null
   val overridden = model.configValues.toMutableMap()
   temperature?.let { overridden[ConfigKeys.TEMPERATURE.id] = clampTemperature(it) }
   topP?.let { overridden[ConfigKeys.TOPP.id] = clampTopP(it) }
   topK?.let { overridden[ConfigKeys.TOPK.id] = clampTopK(it) }
+  seed?.let { overridden[SAMPLER_SEED_CONFIG_KEY] = it }
   maxTokens?.let {
     val clamped = clampMaxTokens(it)
     val engineMax = model.maxContextTokens

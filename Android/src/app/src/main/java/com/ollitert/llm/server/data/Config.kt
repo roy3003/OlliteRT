@@ -57,6 +57,9 @@ object ConfigKeys {
   val NUMBER_OF_RUNS = ConfigKey("number_of_runs", "Number of runs", R.string.config_label_number_of_runs)
 }
 
+/** Internal per-request sampler key. Not persisted or shown in model settings. */
+const val SAMPLER_SEED_CONFIG_KEY = "seed"
+
 /** Read [ConfigKeys.MAX_TOKENS] from a config values map as [Int], or null if absent/non-numeric. */
 fun Map<String, Any>.maxTokensInt(): Int? =
   (this[ConfigKeys.MAX_TOKENS.id] as? Number)?.toInt()

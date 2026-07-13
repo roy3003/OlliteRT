@@ -51,6 +51,7 @@ import com.ollitert.llm.server.data.LOG_ERROR_PREVIEW_SHORT_CHARS
 import com.ollitert.llm.server.data.MIN_STORAGE_FOR_MODEL_INIT_BYTES
 import com.ollitert.llm.server.data.Model
 import com.ollitert.llm.server.data.ModelCapability
+import com.ollitert.llm.server.data.SAMPLER_SEED_CONFIG_KEY
 import com.ollitert.llm.server.data.configSpeculativeDecodingEnabled
 import com.ollitert.llm.server.data.bytesToMb
 import com.ollitert.llm.server.service.EventCategory
@@ -60,6 +61,7 @@ import com.ollitert.llm.server.service.RequestLogStore
 import kotlinx.coroutines.CoroutineScope
 import java.io.File
 import java.util.concurrent.CancellationException
+import kotlin.random.Random
 
 typealias ResultListener =
   (partialResult: String, done: Boolean, partialThinkingResult: String?) -> Unit
@@ -67,6 +69,10 @@ typealias ResultListener =
 typealias CleanUpListener = () -> Unit
 
 private const val TAG = "OlliteRT.ModelHelper"
+
+private fun Map<String, Any>?.samplerSeedOrRandom(): Int =
+  (this?.get(SAMPLER_SEED_CONFIG_KEY) as? Number)?.toInt()
+    ?: Random.nextInt(1, Int.MAX_VALUE)
 
 data class LlmModelInstance(val engine: Engine, var conversation: Conversation)
 
@@ -195,6 +201,7 @@ object ServerLlmModelHelper {
     val temperature = configOverrides?.let {
       (it[ConfigKeys.TEMPERATURE.id] as? Number)?.toFloat() ?: DEFAULT_TEMPERATURE
     } ?: model.getFloatConfigValue(key = ConfigKeys.TEMPERATURE, defaultValue = DEFAULT_TEMPERATURE)
+    val seed = configOverrides.samplerSeedOrRandom()
     val accelerator = configOverrides?.let {
       (it[ConfigKeys.ACCELERATOR.id] as? String) ?: Accelerator.GPU.label
     } ?: model.getStringConfigValue(key = ConfigKeys.ACCELERATOR, defaultValue = Accelerator.GPU.label)
@@ -369,6 +376,7 @@ object ServerLlmModelHelper {
                     topK = topK,
                     topP = topP.toDouble(),
                     temperature = temperature.toDouble(),
+                    seed = seed,
                   )
                 } else {
                   null
@@ -441,6 +449,7 @@ object ServerLlmModelHelper {
                     topK = topK,
                     topP = topP.toDouble(),
                     temperature = temperature.toDouble(),
+                    seed = seed,
                   ),
                   systemInstruction = systemInstruction,
                   tools = tools,
@@ -517,6 +526,7 @@ object ServerLlmModelHelper {
       val topP = model.getFloatConfigValue(key = ConfigKeys.TOPP, defaultValue = DEFAULT_TOPP)
       val temperature =
         model.getFloatConfigValue(key = ConfigKeys.TEMPERATURE, defaultValue = DEFAULT_TEMPERATURE)
+      val seed = model.configValues.samplerSeedOrRandom()
 
       val accelerator =
         model.getStringConfigValue(
@@ -536,6 +546,7 @@ object ServerLlmModelHelper {
                     topK = topK,
                     topP = topP.toDouble(),
                     temperature = temperature.toDouble(),
+                    seed = seed,
                   )
                 } else {
                   null

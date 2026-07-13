@@ -107,6 +107,7 @@ data class LlmHttpModelList(val `object`: String = "list", val data: List<LlmHtt
   val temperature: Double? = null,
   val top_p: Double? = null,
   val top_k: Int? = null,
+  val seed: Int? = null,
   val max_output_tokens: Int? = null,      // Responses API uses max_output_tokens
   val tools: List<ToolSpec>? = null,
   val tool_choice: JsonElement? = null,    // String or Object, same as ChatRequest

@@ -19,6 +19,7 @@ package com.ollitert.llm.server.service
 import com.ollitert.llm.server.data.ConfigKeys
 import com.ollitert.llm.server.data.Model
 import com.ollitert.llm.server.data.RequestPrefsSnapshot
+import com.ollitert.llm.server.data.SAMPLER_SEED_CONFIG_KEY
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -43,11 +44,12 @@ class EndpointHandlersHelpersTest {
 
   @Test
   fun describeMultipleParams() {
-    val result = describeClientSamplerParams(0.5, 0.9, 40, 1024)!!
+    val result = describeClientSamplerParams(0.5, 0.9, 40, 1024, 123)!!
     assertTrue(result.contains("temperature=0.5"))
     assertTrue(result.contains("top_p=0.9"))
     assertTrue(result.contains("top_k=40"))
     assertTrue(result.contains("max_tokens=1024"))
+    assertTrue(result.contains("seed=123"))
   }
 
   @Test
@@ -173,11 +175,12 @@ class EndpointHandlersHelpersTest {
     val prefs = RequestPrefsSnapshot(ignoreClientSamplerParams = false)
     val config = resolveSamplerOverrides(
       model = model(), prefs = prefs,
-      temperature = 0.7, topP = 0.9, topK = 40, maxTokens = 512, logId = null,
+      temperature = 0.7, topP = 0.9, topK = 40, maxTokens = 512, seed = 123, logId = null,
     )!!
     assertEquals(0.7f, config[ConfigKeys.TEMPERATURE.id])
     assertEquals(0.9f, config[ConfigKeys.TOPP.id])
     assertEquals(40, config[ConfigKeys.TOPK.id])
+    assertEquals(123, config[SAMPLER_SEED_CONFIG_KEY])
   }
 
   @Test
@@ -185,7 +188,7 @@ class EndpointHandlersHelpersTest {
     val prefs = RequestPrefsSnapshot(ignoreClientSamplerParams = true)
     val result = resolveSamplerOverrides(
       model = model(), prefs = prefs,
-      temperature = 0.7, topP = 0.9, topK = 40, maxTokens = 512, logId = null,
+      temperature = 0.7, topP = 0.9, topK = 40, maxTokens = 512, seed = 123, logId = null,
     )
     assertNull(result)
   }
@@ -195,7 +198,7 @@ class EndpointHandlersHelpersTest {
     val prefs = RequestPrefsSnapshot(ignoreClientSamplerParams = false)
     val result = resolveSamplerOverrides(
       model = model(), prefs = prefs,
-      temperature = null, topP = null, topK = null, maxTokens = null, logId = null,
+      temperature = null, topP = null, topK = null, maxTokens = null, seed = null, logId = null,
     )
     assertNull(result)
   }
@@ -205,7 +208,7 @@ class EndpointHandlersHelpersTest {
     val prefs = RequestPrefsSnapshot(ignoreClientSamplerParams = false)
     val config = resolveSamplerOverrides(
       model = model(), prefs = prefs,
-      temperature = 0.5, topP = null, topK = null, maxTokens = null, logId = null,
+      temperature = 0.5, topP = null, topK = null, maxTokens = null, seed = null, logId = null,
     )!!
     assertEquals(0.5f, config[ConfigKeys.TEMPERATURE.id])
   }
