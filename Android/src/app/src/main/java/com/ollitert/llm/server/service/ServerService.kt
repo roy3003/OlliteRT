@@ -34,7 +34,6 @@ import com.ollitert.llm.server.R
 import com.ollitert.llm.server.common.ErrorCategory
 import com.ollitert.llm.server.common.EndpointInfo
 import com.ollitert.llm.server.common.getAvailableEndpoints
-import com.ollitert.llm.server.common.getWifiIpAddress
 import com.ollitert.llm.server.common.resolveActiveEndpoint
 import com.ollitert.llm.server.data.DATASTORE_READ_TIMEOUT_MS
 import com.ollitert.llm.server.data.LOG_ERROR_PREVIEW_LONG_CHARS
@@ -240,10 +239,11 @@ class ServerService : Service() {
     val startSource = intent.getStringExtra(EXTRA_START_SOURCE)
 
     // ── Ktor server setup (no model dependency) ─────────────────────────────
+    // Scan once; resolveActiveEndpoint also scans internally but persists the choice.
+    val allEndpoints = getAvailableEndpoints()
     val activeEndpoint = resolveActiveEndpoint(this)
     val wifiIp = activeEndpoint.ipAddress.let { if (it == "0.0.0.0") null else it }
     val notifState = buildNotificationIntents(wifiIp, port)
-    val allEndpoints = getAvailableEndpoints()
 
     NotificationHelper.update(
       context = this,

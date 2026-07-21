@@ -17,6 +17,7 @@
 package com.ollitert.llm.server.service
 
 import com.ollitert.llm.server.common.EndpointInfo
+import com.ollitert.llm.server.common.EndpointType
 import com.ollitert.llm.server.common.ErrorCategory
 import com.ollitert.llm.server.common.ServerStatus
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -307,7 +308,7 @@ object ServerMetrics {
     _selectedEndpoint.value = selectedEndpoint
     // Use the selected endpoint's IP for display; fall back to legacy bindAddress or "localhost".
     val displayAddress = selectedEndpoint?.ipAddress ?: bindAddress ?: "localhost"
-    _isLoopbackOnly.value = selectedEndpoint?.type == com.ollitert.llm.server.common.EndpointType.LOOPBACK
+    _isLoopbackOnly.value = selectedEndpoint?.type == EndpointType.LOOPBACK
       || (selectedEndpoint == null && bindAddress == null)
     _bindAddress.value = displayAddress
     _endpointUnavailable.value = false
@@ -326,7 +327,7 @@ object ServerMetrics {
    */
   fun updateEndpointAvailability(currentEndpoints: List<EndpointInfo>) {
     val selected = _selectedEndpoint.value ?: return
-    if (selected.type == com.ollitert.llm.server.common.EndpointType.ALL_INTERFACES) return
+    if (selected.type == EndpointType.ALL_INTERFACES) return
     _endpointUnavailable.value = currentEndpoints.none { it.ipAddress == selected.ipAddress }
   }
 
@@ -334,7 +335,7 @@ object ServerMetrics {
   fun onSelectEndpoint(endpoint: EndpointInfo) {
     _selectedEndpoint.value = endpoint
     _bindAddress.value = endpoint.ipAddress
-    _isLoopbackOnly.value = endpoint.type == com.ollitert.llm.server.common.EndpointType.LOOPBACK
+    _isLoopbackOnly.value = endpoint.type == EndpointType.LOOPBACK
     _endpointUnavailable.value = false
   }
 
