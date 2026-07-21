@@ -312,7 +312,7 @@ class ServerService : Service() {
 
       synchronized(modelLifecycle.keepAliveLock) { defaultModel = model }
 
-      loadModelOnThread(model, thisGeneration, wifiIp, notifState)
+      loadModelOnThread(model, thisGeneration, wifiIp, notifState, allEndpoints, activeEndpoint)
     }
 
     return START_STICKY
@@ -555,6 +555,8 @@ class ServerService : Service() {
     thisGeneration: Long,
     wifiIp: String?,
     notifState: LoadNotificationState,
+    allEndpoints: List<EndpointInfo>,
+    activeEndpoint: EndpointInfo,
   ) {
     try {
       checkStorageBeforeLoad()
