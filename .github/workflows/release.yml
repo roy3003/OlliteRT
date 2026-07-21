@@ -115,6 +115,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_TAG: ${{ github.event.inputs.tag }}
+          BUILD_ONLY: ${{ github.event.inputs.build_only }}
         run: |
           # Use the pushed tag, or the manual input
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
@@ -141,9 +142,13 @@ jobs:
             echo "flavor=beta" >> "$GITHUB_OUTPUT"
           elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-dev\.[0-9]+$ ]]; then
             echo "channel=dev" >> "$GITHUB_OUTPUT"
-            echo "task=assembleDevRelease" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
             echo "flavor=dev" >> "$GITHUB_OUTPUT"
+            if [ "$BUILD_ONLY" = "true" ]; then
+              echo "task=assembleDevDebug" >> "$GITHUB_OUTPUT"
+            else
+              echo "task=assembleDevRelease" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "::error::Unrecognized tag format: $TAG (expected vX.Y.Z, vX.Y.Z-beta.N, or vX.Y.Z-dev.N)"
             exit 1
@@ -203,7 +208,7 @@ jobs:
 
       - name: Build APK
         env:
-          KEYSTORE_FILE: ${{ github.event.inputs.build_only != 'true' && format('{0}/release.keystore', runner.temp) || '' }}
+          KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -220,8 +225,12 @@ jobs:
         env:
           TAG: ${{ steps.tag.outputs.tag }}
           FLAVOR: ${{ steps.tag.outputs.flavor }}
+          BUILD_ONLY: ${{ github.event.inputs.build_only }}
         run: |
           OUT_DIR="app/build/outputs/apk/${FLAVOR}/release"
+          if [ "$BUILD_ONLY" = "true" ]; then
+            OUT_DIR="app/build/outputs/apk/${FLAVOR}/debug"
+          fi
           RELEASE_DIR="release-apks"
           mkdir -p "$RELEASE_DIR"
 
