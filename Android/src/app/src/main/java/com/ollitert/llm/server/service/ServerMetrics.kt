@@ -16,6 +16,7 @@
 
 package com.ollitert.llm.server.service
 
+import com.ollitert.llm.server.common.EndpointInfo
 import com.ollitert.llm.server.common.ErrorCategory
 import com.ollitert.llm.server.common.ServerStatus
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -70,6 +71,23 @@ object ServerMetrics {
   // clients can't reach it but on-device clients (termux, aichat) can.
   private val _isLoopbackOnly = sessionFlow(false)
   val isLoopbackOnly: StateFlow<Boolean> = _isLoopbackOnly.asStateFlow()
+
+  // ── Active API Endpoint selector state ──────────────────────────────────
+  /** All network endpoints discovered at server start. Empty when server is stopped. */
+  private val _availableEndpoints = sessionFlow<List<EndpointInfo>>(emptyList())
+  val availableEndpoints: StateFlow<List<EndpointInfo>> = _availableEndpoints.asStateFlow()
+
+  /** The currently selected endpoint whose IP is used for the Status URL and notification. */
+  private val _selectedEndpoint = sessionFlow<EndpointInfo?>(null)
+  val selectedEndpoint: StateFlow<EndpointInfo?> = _selectedEndpoint.asStateFlow()
+
+  /**
+   * True when the selected endpoint's IP is no longer found in the current scan.
+   * UI uses this to show a warning (⚠️) that the interface is temporarily unavailable.
+   * The server still binds 0.0.0.0, so the API itself remains reachable on other interfaces.
+   */
+  private val _endpointUnavailable = sessionFlow(false)
+  val endpointUnavailable: StateFlow<Boolean> = _endpointUnavailable.asStateFlow()
 
   /** Epoch millis when the server entered RUNNING state, or 0 if stopped. */
   private val _startedAtMs = sessionFlow(0L)
@@ -279,19 +297,45 @@ object ServerMetrics {
     _lastError.value = null
   }
 
-  fun onServerRunning(bindAddress: String?) {
+  fun onServerRunning(
+    bindAddress: String?,
+    availableEndpoints: List<EndpointInfo> = emptyList(),
+    selectedEndpoint: EndpointInfo? = null,
+  ) {
     _status.value = ServerStatus.RUNNING
-    // When no Wi-Fi IP is detected, fall back to "localhost" so on-device clients
-    // (termux, aichat, browsers) still see a usable endpoint URL on the Status screen
-    // and the Copy button has something to copy. The server already binds 0.0.0.0
-    // which accepts loopback regardless of network state.
-    _isLoopbackOnly.value = bindAddress == null
-    _bindAddress.value = bindAddress ?: "localhost"
+    _availableEndpoints.value = availableEndpoints
+    _selectedEndpoint.value = selectedEndpoint
+    // Use the selected endpoint's IP for display; fall back to legacy bindAddress or "localhost".
+    val displayAddress = selectedEndpoint?.ipAddress ?: bindAddress ?: "localhost"
+    _isLoopbackOnly.value = selectedEndpoint?.type == com.ollitert.llm.server.common.EndpointType.LOOPBACK
+      || (selectedEndpoint == null && bindAddress == null)
+    _bindAddress.value = displayAddress
+    _endpointUnavailable.value = false
     _startedAtMs.value = System.currentTimeMillis()
     _modelCreatedAtEpoch.value = System.currentTimeMillis() / 1000
     _loadingStartedAtMs.value = 0L
     _lastError.value = null
     _isIdleUnloaded.value = false
+  }
+
+  /**
+   * Called by the UI layer (via ViewModel) when the Status screen resumes to re-check
+   * whether the selected endpoint's IP is still present in the current network scan.
+   * Sets [endpointUnavailable] so the UI can show a warning badge.
+   * Does NOT change the selected endpoint — the user must restart to re-evaluate default selection.
+   */
+  fun updateEndpointAvailability(currentEndpoints: List<EndpointInfo>) {
+    val selected = _selectedEndpoint.value ?: return
+    if (selected.type == com.ollitert.llm.server.common.EndpointType.ALL_INTERFACES) return
+    _endpointUnavailable.value = currentEndpoints.none { it.ipAddress == selected.ipAddress }
+  }
+
+  /** Called when the user manually selects a different endpoint from the dropdown. */
+  fun onSelectEndpoint(endpoint: EndpointInfo) {
+    _selectedEndpoint.value = endpoint
+    _bindAddress.value = endpoint.ipAddress
+    _isLoopbackOnly.value = endpoint.type == com.ollitert.llm.server.common.EndpointType.LOOPBACK
+    _endpointUnavailable.value = false
   }
 
   fun onServerStopped() {

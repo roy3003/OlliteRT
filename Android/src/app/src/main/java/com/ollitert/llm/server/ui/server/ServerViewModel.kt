@@ -23,6 +23,8 @@ import com.ollitert.llm.server.data.ACTION_IN_FLIGHT_DEBOUNCE_MS
 import com.ollitert.llm.server.data.ServerPrefs
 import com.ollitert.llm.server.service.ServerService
 import com.ollitert.llm.server.common.ServerStatus
+import com.ollitert.llm.server.common.EndpointInfo
+import com.ollitert.llm.server.common.getAvailableEndpoints
 import com.ollitert.llm.server.service.ServerMetrics
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -46,6 +48,9 @@ class ServerViewModel @Inject constructor(
   val port = ServerMetrics.port
   val bindAddress = ServerMetrics.bindAddress
   val isLoopbackOnly = ServerMetrics.isLoopbackOnly
+  val availableEndpoints = ServerMetrics.availableEndpoints
+  val selectedEndpoint = ServerMetrics.selectedEndpoint
+  val endpointUnavailable = ServerMetrics.endpointUnavailable
   val startedAtMs = ServerMetrics.startedAtMs
   val requestCount = ServerMetrics.requestCount
   val tokensGenerated = ServerMetrics.tokensGenerated
@@ -126,6 +131,25 @@ class ServerViewModel @Inject constructor(
       delay(ACTION_IN_FLIGHT_DEBOUNCE_MS)
       actionInFlight = false
     }
+  }
+
+  /**
+   * Called when the Status screen resumes to re-check endpoint availability.
+   * Scans current network interfaces and updates the unavailable warning flag.
+   */
+  fun refreshEndpointAvailability() {
+    val endpoints = getAvailableEndpoints()
+    ServerMetrics.updateEndpointAvailability(endpoints)
+  }
+
+  /**
+   * Called when the user selects a different endpoint from the dropdown.
+   * Persists the choice and updates ServerMetrics immediately.
+   */
+  fun selectEndpoint(endpoint: EndpointInfo) {
+    ServerPrefs.setSelectedEndpointIp(context, endpoint.ipAddress)
+    ServerPrefs.setSelectedEndpointInterface(context, endpoint.interfaceName)
+    ServerMetrics.onSelectEndpoint(endpoint)
   }
 
 }

@@ -470,6 +470,9 @@
 
   <!-- Status: Endpoint card -->
   <string name="status_active_api_endpoint" translatable="false">Active API Endpoint</string>
+  <string name="status_endpoint_unavailable" translatable="false">Endpoint unavailable — interface may be down</string>
+  <string name="status_endpoint_all_interfaces" translatable="false">All interfaces</string>
+  <string name="status_endpoint_select_tooltip" translatable="false">Select endpoint</string>
   <string name="status_endpoint_placeholder" translatable="false">—</string>
   <string name="status_endpoint_loopback_only" translatable="false">Loopback only — reachable from this device only (no Wi-Fi)</string>
   <string name="status_copy_endpoint_tooltip" translatable="false">Copy endpoint URL</string>

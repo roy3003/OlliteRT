@@ -78,6 +78,13 @@ private const val KEY_HIDE_HEALTH_LOGS = "hide_health_logs"
 private const val DEFAULT_HIDE_HEALTH_LOGS = false
 
 // ═══════════════════════════════════════════════════════════════════════════
+// § Active API Endpoint — user-selected interface for endpoint display
+// ═══════════════════════════════════════════════════════════════════════════
+
+private const val KEY_SELECTED_ENDPOINT_IP = "selected_endpoint_ip"
+private const val KEY_SELECTED_ENDPOINT_INTERFACE = "selected_endpoint_interface"
+
+// ═══════════════════════════════════════════════════════════════════════════
 // § Log Persistence — enabled, max entries, auto delete
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -469,6 +476,30 @@ object ServerPrefs {
 
   fun isHideHealthLogs(context: Context): Boolean = get(context, HIDE_HEALTH_LOGS)
   fun setHideHealthLogs(context: Context, enabled: Boolean) = set(context, HIDE_HEALTH_LOGS, enabled)
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // § Active API Endpoint
+  // ══════════════════════════════════════════════════════════════════════════
+
+  fun getSelectedEndpointIp(context: Context): String? =
+    prefs(context).getString(KEY_SELECTED_ENDPOINT_IP, null)
+
+  fun setSelectedEndpointIp(context: Context, ip: String?) {
+    prefs(context).edit {
+      if (ip != null) putString(KEY_SELECTED_ENDPOINT_IP, ip)
+      else remove(KEY_SELECTED_ENDPOINT_IP)
+    }
+  }
+
+  fun getSelectedEndpointInterface(context: Context): String? =
+    prefs(context).getString(KEY_SELECTED_ENDPOINT_INTERFACE, null)
+
+  fun setSelectedEndpointInterface(context: Context, iface: String?) {
+    prefs(context).edit {
+      if (iface != null) putString(KEY_SELECTED_ENDPOINT_INTERFACE, iface)
+      else remove(KEY_SELECTED_ENDPOINT_INTERFACE)
+    }
+  }
 
   // ══════════════════════════════════════════════════════════════════════════
   // § Log Persistence
