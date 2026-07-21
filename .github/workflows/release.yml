@@ -59,6 +59,7 @@ jobs:
         working-directory: .
 
       - name: Validate signing secrets
+        if: ${{ github.event.inputs.build_only != 'true' }}
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
@@ -190,6 +191,7 @@ jobs:
           sdkmanager "platforms;android-${COMPILE_SDK}" "build-tools;${BUILD_TOOLS}" "platform-tools"
 
       - name: Decode release keystore
+        if: ${{ github.event.inputs.build_only != 'true' }}
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
@@ -199,9 +201,9 @@ jobs:
       - name: Ensure Gradle wrapper is executable
         run: chmod +x ./gradlew
 
-      - name: Build signed APK
+      - name: Build APK
         env:
-          KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
+          KEYSTORE_FILE: ${{ github.event.inputs.build_only != 'true' && format('{0}/release.keystore', runner.temp) || '' }}
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
