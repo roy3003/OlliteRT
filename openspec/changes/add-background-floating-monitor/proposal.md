@@ -11,7 +11,7 @@ When OlliteRT serves as a local network LLM endpoint, users cannot see whether t
 - Show the monitor only while the app is backgrounded, the current `ServerService` is alive, and server state is RUNNING.
 - Map RUNNING + idle to Running and RUNNING + `isInferring` to Processing; hide all other server states.
 - RUNNING statically shows exact `req` / `err`; PROCESSING statically shows exact `req` / current `proc` elapsed.
-- Keep state changes event-driven and coalesce visible metric redraws to at most once per 500ms.
+- Keep state changes event-driven and coalesce visible metric redraws to at most once per second.
 - Support tap-to-open, drag, normalized position persistence, safe-area clamping, and reset position.
 - Draw a dynamic point-top hexagon inspired by `ic_brand` without relying on a fixed status bitmap.
 - Isolate all overlay lifecycle, exceptions, and coroutines from model/Ktor lifecycle.
@@ -57,7 +57,7 @@ Expected changes include settings metadata/UI, preferences, Manifest overlay per
 ## Risks and Mitigations
 
 - **Overlay permission flow briefly backgrounds the Activity:** use a shared suppression StateFlow and recheck permission before clearing it.
-- **Permission can be revoked without a reliable callback:** re-evaluate on state events and each visible metric tick, bounded by 500ms.
+- **Permission can be revoked without a reliable callback:** re-evaluate on state events and each visible metric tick, bounded by 1s.
 - **WindowManager calls can race or throw:** serialize on Main, make attach/remove idempotent, and reconcile attached state after failures.
 - **Transparent corners still intercept touch:** keep a tight rectangular window and document the limitation.
 - **Stale RUNNING during Service cleanup:** dispose at the start of `onDestroy()`.
@@ -65,7 +65,7 @@ Expected changes include settings metadata/UI, preferences, Manifest overlay per
 
 ## Validation Plan
 
-- JVM tests: state/display mapping, visibility reducer, lifecycle StateFlow, five-digit exact counts, bounded processing elapsed, 500ms coalescing, gesture/geometry reducers, Window lifecycle, and failure isolation.
+- JVM tests: state/display mapping, visibility reducer, lifecycle StateFlow, five-digit exact counts, bounded processing elapsed, 1s coalescing, gesture/geometry reducers, Window lifecycle, and failure isolation.
 - Android tests: setting default/save/reset/search/change detection, permission-required state, and permission Activity Result/suppression behavior.
 - Real-device checks: permission grant/deny/revoke, background RUNNING/PROCESSING, foreground hiding, non-RUNNING hiding, tap, drag, rotation/insets, reset, Service destruction, and a real inference request.
 - Run target Kotlin compilation and unit tests; retain exact logs for any environment blocker and never claim an unobserved pass.

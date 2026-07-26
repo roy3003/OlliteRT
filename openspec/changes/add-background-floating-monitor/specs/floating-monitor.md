@@ -138,7 +138,7 @@ The controller SHALL record a local monotonic start when observed `isInferring` 
 #### Scenario: Visible metric updates are coalesced without polling
 
 - GIVEN Running or Processing is visible
-- WHEN current metric inputs change multiple times in a 500ms window
+- WHEN current metric inputs change multiple times in a one-second window
 - THEN the monitor SHALL invalidate at most once for those metrics in that window
 - AND SHALL draw the latest snapshot
 - WHEN the monitor becomes Hidden

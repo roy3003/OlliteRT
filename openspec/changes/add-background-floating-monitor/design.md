@@ -16,7 +16,7 @@ saved setting/position snapshot
 FloatingMonitorController
   independent Main/Supervisor scope
   pure state + visibility reducer
-  WindowManager lifecycle + 500ms metric throttle
+  WindowManager lifecycle + 1s metric throttle
         |
         v
 FloatingMonitorView
@@ -69,7 +69,7 @@ It attaches only when the visibility predicate is true. The setting is captured 
 
 Saved intent is independent from permission. Settings shows On + Permission required and an explicit Grant action. Before launching system overlay settings, shared suppression becomes true. The result/resume path rechecks permission before clearing suppression so Activity ON_STOP cannot reveal the overlay above system settings.
 
-Permission revocation has no reliable callback. While visible, the 500ms metric tick also rechecks permission; state events do the same. Any add/update failure also forces reconciliation.
+Permission revocation has no reliable callback. While visible, the 1s metric tick also rechecks permission; state events do the same. Any add/update failure also forces reconciliation.
 
 ## Stability and Coroutine Isolation
 
@@ -102,7 +102,7 @@ Controller observes `isInferring` from Service start. A false→true transition 
 
 No historical TTFB, latency, token callback, or progress sampling is used.
 
-Status/visibility updates render immediately. Metric values are snapshotted and coalesced by one visible 500ms tick; hidden/disposed state has no tick. A draw is skipped if formatted visible output did not change.
+Status/visibility updates render immediately. Metric values are snapshotted and coalesced by a visible one-second tick; hidden/disposed state has no tick. A draw is skipped if formatted visible output did not change.
 
 ## Renderer and Input
 

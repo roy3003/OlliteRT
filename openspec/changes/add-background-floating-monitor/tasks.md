@@ -44,10 +44,10 @@ Implementation follows the local ticket order under `.scratch/add-background-flo
 - [ ] Implement independent `SupervisorJob + Dispatchers.Main.immediate` controller scope.
 - [ ] Subscribe only to existing status/isInferring/requestCount/errorCount plus lifecycle/permission/setting inputs.
 - [ ] Record controller-local monotonic processing start on false→true and clear on true→false/dispose; do not modify inference callbacks.
-- [ ] Make state updates immediate and coalesce visible metrics with one 500ms ticker; hidden state has no ticker.
+- [ ] Make state updates immediate and coalesce visible metrics with a single one-second ticker; hidden state has no ticker.
 - [ ] Create controller via an application EntryPoint if needed; keep construction outside the Service critical LLM try/catch.
 - [ ] Catch all overlay failures locally; never call/cause `stopSelf()` and never cancel/block Service scope.
-- [ ] Recheck permission on state events and visible ticks; revoke/removal bound is 500ms while visible.
+- [ ] Recheck permission on state events and visible ticks; revoke/removal bound is 1s while visible.
 - [ ] Best-effort dispose at the start of `onDestroy()` before existing LLM cleanup.
 - [ ] Serialize all WindowManager calls on Main and reconcile attached state after exceptions.
 - [ ] Do not add a second Service, notification, polling, `/proc`, network scan, or model task.
@@ -66,7 +66,7 @@ Implementation follows the local ticket order under `.scratch/add-background-flo
 
 - [ ] `git diff --check`.
 - [ ] Re-run target compile/unit command with complete logs.
-- [ ] JVM: state/display, visibility, five-digit counts, elapsed, 500ms coalescing, Window lifecycle, gestures, position, and isolation.
+- [ ] JVM: state/display, visibility, five-digit counts, elapsed, 1s coalescing, Window lifecycle, gestures, position, and isolation.
 - [ ] Android: preference wiring and permission Activity Result/suppression.
 - [ ] Run `gm-code-review` against fixed base/head on Standards and Spec axes.
 - [ ] Turn accepted findings into RED tests before fixes.
