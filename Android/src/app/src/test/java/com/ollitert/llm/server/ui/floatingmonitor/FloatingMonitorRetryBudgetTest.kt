@@ -32,4 +32,31 @@ class FloatingMonitorRetryBudgetTest {
     assertTrue(budget.record(success = false))
     assertFalse(budget.record(success = false))
   }
+
+  @Test
+  fun `hidden detach failure retries only while budget remains`() {
+    val budget = FloatingMonitorRetryBudget(maxConsecutiveFailures = 3)
+
+    assertTrue(
+      shouldContinueFloatingMonitorReconciliation(
+        modelVisible = false,
+        reconciled = false,
+        retryAllowed = budget.record(success = false),
+      )
+    )
+    assertTrue(
+      shouldContinueFloatingMonitorReconciliation(
+        modelVisible = false,
+        reconciled = false,
+        retryAllowed = budget.record(success = false),
+      )
+    )
+    assertFalse(
+      shouldContinueFloatingMonitorReconciliation(
+        modelVisible = false,
+        reconciled = false,
+        retryAllowed = budget.record(success = false),
+      )
+    )
+  }
 }
