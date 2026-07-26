@@ -55,15 +55,11 @@ import com.ollitert.llm.server.ui.server.ServerViewModel
 import com.ollitert.llm.server.ui.theme.OlliteRTTheme
 import com.ollitert.llm.server.worker.AllowlistRefreshWorker
 import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-
-  @Inject lateinit var lifecycleProvider: OlliteRTLifecycleProvider
-
   private val modelManagerViewModel: ModelManagerViewModel by viewModels()
   private val serverViewModel: ServerViewModel by viewModels()
   private var splashScreenAboutToExit: Boolean = false
@@ -175,16 +171,6 @@ class MainActivity : ComponentActivity() {
     }
 
     handleModelUpdateIntent(intent)
-  }
-
-  override fun onStart() {
-    super.onStart()
-    lifecycleProvider.setAppInForeground(true)
-  }
-
-  override fun onStop() {
-    lifecycleProvider.setAppInForeground(false)
-    super.onStop()
   }
 
   override fun onNewIntent(intent: Intent) {

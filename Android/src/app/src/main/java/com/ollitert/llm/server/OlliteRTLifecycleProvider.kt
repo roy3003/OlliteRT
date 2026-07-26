@@ -31,8 +31,20 @@ import kotlinx.coroutines.flow.asStateFlow
 class OlliteRTLifecycleProvider @Inject constructor() {
   private val _isAppInForeground = MutableStateFlow(false)
   val isAppInForeground: StateFlow<Boolean> = _isAppInForeground.asStateFlow()
+  private var startedActivityCount = 0
 
-  fun setAppInForeground(foreground: Boolean) {
-    _isAppInForeground.value = foreground
+  fun onActivityStarted() {
+    startedActivityCount += 1
+    if (startedActivityCount == 1) {
+      _isAppInForeground.value = true
+    }
+  }
+
+  fun onActivityStopped() {
+    if (startedActivityCount == 0) return
+    startedActivityCount -= 1
+    if (startedActivityCount == 0) {
+      _isAppInForeground.value = false
+    }
   }
 }
