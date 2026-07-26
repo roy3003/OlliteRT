@@ -38,6 +38,14 @@ class FloatingMonitorPlacementTest {
   }
 
   @Test
+  fun `final up coordinate participates in drag classification`() {
+    val tracker = FloatingMonitorGestureTracker(touchSlopPx = 10f)
+    tracker.start(0f, 0f)
+
+    assertEquals(FloatingMonitorGestureResult.Drag, tracker.end(11f, 0f))
+  }
+
+  @Test
   fun `cancel never becomes a tap`() {
     val tracker = FloatingMonitorGestureTracker(touchSlopPx = 10f)
     tracker.start(0f, 0f)
