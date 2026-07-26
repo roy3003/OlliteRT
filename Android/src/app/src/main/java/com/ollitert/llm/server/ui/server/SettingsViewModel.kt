@@ -123,6 +123,7 @@ class SettingsViewModel @Inject constructor(
   val confirmClearLogsEntry get() = entry<Boolean>("confirm_clear_logs")
   val keepPartialResponseEntry get() = entry<Boolean>("keep_partial_response")
   val autoStartOnBootEntry get() = entry<Boolean>("start_on_boot")
+  val floatingMonitorEntry get() = entry<Boolean>("floating_monitor")
   val keepAliveEnabledEntry get() = entry<Boolean>("keep_alive")
   val keepAliveMinutesEntry get() = entry<Long>("keep_alive_timeout")
   val updateCheckEnabledEntry get() = entry<Boolean>("auto_update_check")

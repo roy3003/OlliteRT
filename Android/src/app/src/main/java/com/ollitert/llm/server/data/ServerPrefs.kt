@@ -102,6 +102,7 @@ private const val DEFAULT_KEEP_ALIVE_MINUTES = 5
 // ═══════════════════════════════════════════════════════════════════════════
 
 private const val KEY_AUTO_START_ON_BOOT = "auto_start_on_boot"
+private const val KEY_FLOATING_MONITOR_ENABLED = "floating_monitor_enabled"
 private const val KEY_CLEAR_LOGS_ON_STOP = "clear_logs_on_stop"
 private const val KEY_CONFIRM_CLEAR_LOGS = "confirm_clear_logs"
 
@@ -288,6 +289,7 @@ object ServerPrefs {
 
   // Boot & Lifecycle
   private val AUTO_START_ON_BOOT = BoolPref(KEY_AUTO_START_ON_BOOT, false)
+  private val FLOATING_MONITOR_ENABLED = BoolPref(KEY_FLOATING_MONITOR_ENABLED, false)
   private val CLEAR_LOGS_ON_STOP = BoolPref(KEY_CLEAR_LOGS_ON_STOP, false)
   private val CONFIRM_CLEAR_LOGS = BoolPref(KEY_CONFIRM_CLEAR_LOGS, true)
 
@@ -499,6 +501,9 @@ object ServerPrefs {
 
   fun isAutoStartOnBoot(context: Context): Boolean = get(context, AUTO_START_ON_BOOT)
   fun setAutoStartOnBoot(context: Context, enabled: Boolean) = set(context, AUTO_START_ON_BOOT, enabled)
+
+  fun isFloatingMonitorEnabled(context: Context): Boolean = get(context, FLOATING_MONITOR_ENABLED)
+  fun setFloatingMonitorEnabled(context: Context, enabled: Boolean) = set(context, FLOATING_MONITOR_ENABLED, enabled)
 
   fun isClearLogsOnStop(context: Context): Boolean = get(context, CLEAR_LOGS_ON_STOP)
   fun setClearLogsOnStop(context: Context, enabled: Boolean) = set(context, CLEAR_LOGS_ON_STOP, enabled)

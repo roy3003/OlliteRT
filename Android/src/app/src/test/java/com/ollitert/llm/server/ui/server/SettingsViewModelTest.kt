@@ -68,6 +68,7 @@ class SettingsViewModelTest {
     every { ServerPrefs.getHfToken(any()) } returns ""
     every { ServerPrefs.isKeepScreenOn(any()) } returns true
     every { ServerPrefs.isAutoStartOnBoot(any()) } returns false
+    every { ServerPrefs.isFloatingMonitorEnabled(any()) } returns false
     every { ServerPrefs.isKeepAliveEnabled(any()) } returns false
     every { ServerPrefs.getKeepAliveMinutes(any()) } returns 30
     every { ServerPrefs.isWarmupEnabled(any()) } returns true
@@ -109,6 +110,7 @@ class SettingsViewModelTest {
 
     every { ServerPrefs.setBearerToken(any(), any()) } returns Unit
     every { ServerPrefs.setKeepScreenOn(any(), any()) } returns Unit
+    every { ServerPrefs.setFloatingMonitorEnabled(any(), any()) } returns Unit
     every { ServerPrefs.setTimeoutChatCompletions(any(), any()) } returns Unit
     every { ServerPrefs.setTimeoutResponses(any(), any()) } returns Unit
     every { ServerPrefs.setTimeoutStreaming(any(), any()) } returns Unit
