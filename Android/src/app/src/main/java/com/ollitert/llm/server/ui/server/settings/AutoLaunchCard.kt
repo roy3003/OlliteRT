@@ -37,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,7 +52,12 @@ import com.ollitert.llm.server.ui.server.SettingsViewModel
 import com.ollitert.llm.server.ui.theme.OlliteRTPrimary
 
 @Composable
-internal fun AutoLaunchCard(vm: SettingsViewModel, downloadedModelNames: List<String>) {
+internal fun AutoLaunchCard(
+  vm: SettingsViewModel,
+  downloadedModelNames: List<String>,
+  overlayPermissionGranted: Boolean,
+  onRequestOverlayPermission: () -> Unit,
+) {
   val uriHandler = LocalUriHandler.current
 
   SettingsCard(
@@ -151,7 +157,41 @@ internal fun AutoLaunchCard(vm: SettingsViewModel, downloadedModelNames: List<St
       )
     }
 
-    if (vm.settingVisible(START_ON_BOOT.key) && vm.settingVisible(KEEP_ALIVE.key)) {
+    if (vm.settingVisible(START_ON_BOOT.key) && vm.settingVisible(FLOATING_MONITOR.key)) {
+      SettingDivider()
+    }
+
+    if (vm.settingVisible(FLOATING_MONITOR.key)) {
+      ToggleSettingRow(
+        label = stringResource(R.string.settings_floating_monitor),
+        description = stringResource(R.string.settings_floating_monitor_desc),
+        checked = vm.floatingMonitorEntry.current,
+        onCheckedChange = { enabled ->
+          vm.floatingMonitorEntry.update(enabled)
+          if (enabled && !overlayPermissionGranted) onRequestOverlayPermission()
+        },
+        searchQuery = vm.searchQuery,
+      )
+
+      if (vm.floatingMonitorEntry.current && !overlayPermissionGranted) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Text(
+            text = stringResource(R.string.settings_floating_monitor_permission_required),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+          )
+          Spacer(modifier = Modifier.weight(1f))
+          TextButton(onClick = onRequestOverlayPermission) {
+            Text(stringResource(R.string.settings_floating_monitor_grant_permission))
+          }
+        }
+      }
+    }
+
+    if (vm.settingVisible(FLOATING_MONITOR.key) && vm.settingVisible(KEEP_ALIVE.key)) {
       SettingDivider()
     }
 

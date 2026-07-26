@@ -36,6 +36,7 @@ import com.ollitert.llm.server.service.ServerService
 import com.ollitert.llm.server.service.RequestLogStore
 import com.ollitert.llm.server.service.ServerMetrics
 import com.ollitert.llm.server.ui.common.matchesSearchQuery
+import com.ollitert.llm.server.ui.floatingmonitor.FloatingMonitorPermissionCoordinator
 import com.ollitert.llm.server.ui.server.settings.CardId
 import com.ollitert.llm.server.ui.server.settings.SettingDef
 import com.ollitert.llm.server.ui.server.settings.SettingEntry
@@ -62,6 +63,7 @@ class SettingsViewModel @Inject constructor(
   @param:ApplicationContext private val context: Context,
   private val persistence: RequestLogPersistence,
   private val dataStoreRepository: DataStoreRepository,
+  private val floatingMonitorPermissionCoordinator: FloatingMonitorPermissionCoordinator,
 ) : ViewModel() {
 
   var repoCount: Int by mutableIntStateOf(0)
@@ -179,6 +181,14 @@ class SettingsViewModel @Inject constructor(
   var showDiscardDialog by mutableStateOf(false)
   var showDonateDialog by mutableStateOf(false)
   var showTrimPromptWarning by mutableStateOf(false)
+
+  fun beginFloatingMonitorPermissionFlow() {
+    floatingMonitorPermissionCoordinator.beginPermissionFlow()
+  }
+
+  fun endFloatingMonitorPermissionFlow() {
+    floatingMonitorPermissionCoordinator.endPermissionFlow()
+  }
 
   // ─── Search ──────────────────────────────────────────────────────────────
   var searchQuery by mutableStateOf("")

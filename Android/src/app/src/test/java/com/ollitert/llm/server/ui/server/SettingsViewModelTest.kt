@@ -20,6 +20,7 @@ import android.content.Context
 import com.ollitert.llm.server.common.ServerStatus
 import com.ollitert.llm.server.data.DEFAULT_PORT
 import com.ollitert.llm.server.data.ServerPrefs
+import com.ollitert.llm.server.ui.floatingmonitor.FloatingMonitorPermissionCoordinator
 import com.ollitert.llm.server.ui.server.settings.STT_TRANSCRIPTION_PROMPT
 import com.ollitert.llm.server.data.db.RequestLogPersistence
 import com.ollitert.llm.server.service.RequestLogStore
@@ -130,7 +131,12 @@ class SettingsViewModelTest {
     every { UpdateCheckWorker.scheduleUpdateCheck(any()) } returns Unit
     every { UpdateCheckWorker.cancelUpdateCheck(any()) } returns Unit
 
-    vm = SettingsViewModel(mockContext, mockPersistence, FakeDataStoreRepository())
+    vm = SettingsViewModel(
+      mockContext,
+      mockPersistence,
+      FakeDataStoreRepository(),
+      FloatingMonitorPermissionCoordinator(),
+    )
   }
 
   @After
@@ -321,6 +327,16 @@ class SettingsViewModelTest {
     every { ServerPrefs.isLogPersistenceEnabled(any()) } returns false
     vm.save(ServerStatus.STOPPED)
     verify(exactly = 1) { ServerPrefs.setKeepScreenOn(mockContext, false) }
+  }
+
+  @Test
+  fun savePersistsFloatingMonitorIntentWithoutOverlayPermission() {
+    vm.floatingMonitorEntry.update(true)
+    every { ServerPrefs.isLogPersistenceEnabled(any()) } returns false
+
+    vm.save(ServerStatus.STOPPED)
+
+    verify(exactly = 1) { ServerPrefs.setFloatingMonitorEnabled(mockContext, true) }
   }
 
   @Test
