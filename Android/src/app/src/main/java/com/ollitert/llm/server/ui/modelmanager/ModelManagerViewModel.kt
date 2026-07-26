@@ -853,7 +853,7 @@ constructor(
   }
 
   fun setAppInForeground(foreground: Boolean) {
-    lifecycleProvider.isAppInForeground = foreground
+    lifecycleProvider.setAppInForeground(foreground)
   }
 
   fun importModelListFromUrl(url: String, onResult: (String?) -> Unit) {

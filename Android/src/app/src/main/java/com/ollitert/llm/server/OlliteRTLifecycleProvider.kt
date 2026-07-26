@@ -19,6 +19,9 @@ package com.ollitert.llm.server
 
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 // Shares app foreground/background state between the Activity (which sets it)
 // and the foreground Service (which reads it to adjust notification behavior).
@@ -26,11 +29,10 @@ import javax.inject.Singleton
 // doesn't depend on the lifecycle-process library.
 @Singleton
 class OlliteRTLifecycleProvider @Inject constructor() {
-  @Volatile private var _isAppInForeground = false
+  private val _isAppInForeground = MutableStateFlow(false)
+  val isAppInForeground: StateFlow<Boolean> = _isAppInForeground.asStateFlow()
 
-  var isAppInForeground: Boolean
-    get() = _isAppInForeground
-    set(value) {
-      _isAppInForeground = value
-    }
+  fun setAppInForeground(foreground: Boolean) {
+    _isAppInForeground.value = foreground
+  }
 }
