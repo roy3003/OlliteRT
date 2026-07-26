@@ -24,13 +24,17 @@ import org.junit.Test
 class OlliteRTLifecycleProviderTest {
 
   @Test
-  fun `foreground state is observable and writable`() {
+  fun `app stays foreground until the last started activity stops`() {
     val provider = OlliteRTLifecycleProvider()
 
-    assertFalse(provider.isAppInForeground.value)
-
-    provider.setAppInForeground(true)
+    provider.onActivityStarted()
+    provider.onActivityStarted()
+    provider.onActivityStopped()
 
     assertTrue(provider.isAppInForeground.value)
+
+    provider.onActivityStopped()
+
+    assertFalse(provider.isAppInForeground.value)
   }
 }
