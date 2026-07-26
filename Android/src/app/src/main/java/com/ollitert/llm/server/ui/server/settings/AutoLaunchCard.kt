@@ -166,10 +166,7 @@ internal fun AutoLaunchCard(
         label = stringResource(R.string.settings_floating_monitor),
         description = stringResource(R.string.settings_floating_monitor_desc),
         checked = vm.floatingMonitorEntry.current,
-        onCheckedChange = { enabled ->
-          vm.floatingMonitorEntry.update(enabled)
-          if (enabled && !overlayPermissionGranted) onRequestOverlayPermission()
-        },
+        onCheckedChange = { enabled -> vm.floatingMonitorEntry.update(enabled) },
         searchQuery = vm.searchQuery,
       )
 

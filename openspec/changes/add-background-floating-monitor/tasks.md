@@ -21,7 +21,7 @@ Implementation follows the local ticket order under `.scratch/add-background-flo
 
 ## 3. Settings, persistence, and permission
 
-- [ ] RED: test `ServerPrefs` default false, save/reload, normalized position, and reset.
+- [ ] RED: test `ServerPrefs` default false, save/reload, and reset-to-default behavior.
 - [ ] Wire metadata definitions, allSettingDefs/allCardDefs, search, typed ViewModel accessors, save/reset, and change detection.
 - [ ] Add Floating monitor UI to the existing server behavior/Auto-Launch area.
 - [ ] Show On + `Permission required` + explicit Grant action when permission is absent.

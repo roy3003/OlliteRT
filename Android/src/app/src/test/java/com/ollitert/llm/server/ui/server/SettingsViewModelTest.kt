@@ -340,6 +340,20 @@ class SettingsViewModelTest {
   }
 
   @Test
+  fun floatingMonitorIntentReloadsFromSharedPreferences() {
+    every { ServerPrefs.isFloatingMonitorEnabled(any()) } returns true
+
+    val reloaded = SettingsViewModel(
+      mockContext,
+      mockPersistence,
+      FakeDataStoreRepository(),
+      FloatingMonitorPermissionCoordinator(),
+    )
+
+    assertTrue(reloaded.floatingMonitorEntry.current)
+  }
+
+  @Test
   fun savePersistsBearerTokenToSharedPreferences() {
     vm.bearerEnabledEntry.update(true)
     vm.bearerTokenEntry.update("my-secret")
@@ -375,6 +389,16 @@ class SettingsViewModelTest {
   fun resetToDefaultsCallsPrefsReset() {
     vm.resetToDefaults()
     verify(exactly = 1) { ServerPrefs.resetToDefaults(mockContext) }
+  }
+
+  @Test
+  fun resetToDefaultsTurnsFloatingMonitorOff() {
+    vm.floatingMonitorEntry.update(true)
+
+    vm.resetToDefaults()
+
+    assertFalse(vm.floatingMonitorEntry.current)
+    assertFalse(vm.floatingMonitorEntry.saved)
   }
 
   @Test
