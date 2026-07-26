@@ -16,6 +16,8 @@
 
 package com.ollitert.llm.server.ui.floatingmonitor
 
+private const val MAX_DISPOSE_DETACH_ATTEMPTS = 2
+
 data class FloatingMonitorRenderModel(
   val visualState: FloatingMonitorVisualState,
   val requestValue: String,
@@ -90,8 +92,12 @@ class FloatingMonitorWindowReconciler(
 
   fun dispose() {
     if (disposed) return
+    var attempts = 0
+    while (window.isAttached && attempts < MAX_DISPOSE_DETACH_ATTEMPTS) {
+      detachIfAttached()
+      attempts += 1
+    }
     disposed = true
-    detachIfAttached()
   }
 
   private fun detachIfAttached() {
