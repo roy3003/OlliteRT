@@ -142,7 +142,11 @@ class FloatingMonitorController(
     if (!reconciled && !retryAllowed) {
       Log.w(TAG, "Floating monitor retry budget exhausted; waiting for a state change")
     }
-    return model != null && retryAllowed
+    return shouldContinueFloatingMonitorReconciliation(
+      modelVisible = model != null,
+      reconciled = reconciled,
+      retryAllowed = retryAllowed,
+    )
   }
 
   private fun handleTap() {

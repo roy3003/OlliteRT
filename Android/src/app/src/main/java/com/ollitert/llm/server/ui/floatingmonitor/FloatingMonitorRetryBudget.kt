@@ -35,3 +35,9 @@ internal class FloatingMonitorRetryBudget(
     return consecutiveFailures < maxConsecutiveFailures
   }
 }
+
+internal fun shouldContinueFloatingMonitorReconciliation(
+  modelVisible: Boolean,
+  reconciled: Boolean,
+  retryAllowed: Boolean,
+): Boolean = retryAllowed && (modelVisible || !reconciled)
