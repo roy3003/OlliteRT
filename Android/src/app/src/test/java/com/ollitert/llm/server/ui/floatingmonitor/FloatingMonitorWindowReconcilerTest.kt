@@ -133,7 +133,7 @@ class FloatingMonitorWindowReconcilerTest {
   @Test
   fun `dispose retries a transient detach failure`() {
     val failures = mutableListOf<String>()
-    val window = FakeWindow(failNextDetach = true)
+    val window = FakeWindow(detachFailuresRemaining = 1)
     val reconciler = FloatingMonitorWindowReconciler(window) { failures += it.message.orEmpty() }
 
     reconciler.reconcile(model(FloatingMonitorVisualState.Running))
@@ -142,6 +142,19 @@ class FloatingMonitorWindowReconcilerTest {
     assertEquals(listOf("attach:Running", "detach", "detach"), window.calls)
     assertEquals(listOf("detach"), failures)
     assertFalse(window.isAttached)
+  }
+
+  @Test
+  fun `dispose deactivates an attached window after detach retries are exhausted`() {
+    val window = FakeWindow(detachFailuresRemaining = 2)
+    val reconciler = FloatingMonitorWindowReconciler(window)
+
+    reconciler.reconcile(model(FloatingMonitorVisualState.Running))
+    reconciler.dispose()
+
+    assertEquals(listOf("attach:Running", "detach", "detach", "deactivate"), window.calls)
+    assertTrue(window.isAttached)
+    assertTrue(window.deactivated)
   }
 
   private fun model(state: FloatingMonitorVisualState) =
@@ -154,12 +167,14 @@ class FloatingMonitorWindowReconcilerTest {
 
   private class FakeWindow(
     private var failNextAttach: Boolean = false,
-    private var failNextDetach: Boolean = false,
+    private var detachFailuresRemaining: Int = 0,
   ) : FloatingMonitorWindowPort {
     override var isAttached: Boolean = false
       private set
     val calls = mutableListOf<String>()
     var failNextUpdate: Boolean = false
+    var deactivated: Boolean = false
+      private set
 
     override fun attach(model: FloatingMonitorRenderModel) {
       if (failNextAttach) {
@@ -182,11 +197,16 @@ class FloatingMonitorWindowReconcilerTest {
 
     override fun detach() {
       calls += "detach"
-      if (failNextDetach) {
-        failNextDetach = false
+      if (detachFailuresRemaining > 0) {
+        detachFailuresRemaining -= 1
         throw IllegalStateException("detach")
       }
       isAttached = false
+    }
+
+    fun deactivate() {
+      calls += "deactivate"
+      deactivated = true
     }
   }
 }
