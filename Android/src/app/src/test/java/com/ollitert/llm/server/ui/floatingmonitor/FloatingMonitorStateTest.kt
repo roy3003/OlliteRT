@@ -18,6 +18,7 @@ package com.ollitert.llm.server.ui.floatingmonitor
 
 import com.ollitert.llm.server.common.ServerStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FloatingMonitorStateTest {
@@ -41,6 +42,20 @@ class FloatingMonitorStateTest {
         status = ServerStatus.RUNNING,
         isInferring = true,
       ),
+    )
+  }
+
+  @Test
+  fun `monitor is visible when every visibility gate is satisfied`() {
+    assertTrue(
+      shouldShowFloatingMonitor(
+        settingEnabled = true,
+        overlayPermissionGranted = true,
+        permissionFlowInProgress = false,
+        appIsForeground = false,
+        serviceIsAlive = true,
+        visualState = FloatingMonitorVisualState.Running,
+      )
     )
   }
 }
