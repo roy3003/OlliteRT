@@ -125,6 +125,7 @@ class ServerService : Service() {
   override fun onCreate() {
     super.onCreate()
     activeInstance = this
+    var coreInitialized = false
     try {
       // Access DataStoreRepository via Hilt EntryPoint so imported models can be resolved
       // when starting the server. The DataStore singleton is managed by Hilt; creating a
@@ -176,12 +177,13 @@ class ServerService : Service() {
       }
       NotificationHelper.createChannel(this)
       checkCorruptedDataStores()
+      coreInitialized = true
     } catch (e: Exception) {
       Log.e(TAG, "Service initialization failed — stopping immediately", e)
       stopSelf()
     }
 
-    if (::modelLifecycle.isInitialized) initializeFloatingMonitorBestEffort()
+    if (coreInitialized) initializeFloatingMonitorBestEffort()
   }
 
   private fun initializeFloatingMonitorBestEffort() {

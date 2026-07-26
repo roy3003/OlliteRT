@@ -107,9 +107,16 @@ internal class AndroidFloatingMonitorWindow(
           true
         }
         MotionEvent.ACTION_UP -> {
-          when (gestureTracker.end()) {
+          when (gestureTracker.end(event.rawX, event.rawY)) {
             FloatingMonitorGestureResult.Tap -> view.performClick()
-            FloatingMonitorGestureResult.Drag -> persistCurrentPosition()
+            FloatingMonitorGestureResult.Drag -> {
+              val target = FloatingMonitorPoint(
+                x = dragStartX + (event.rawX - downRawX).roundToInt(),
+                y = dragStartY + (event.rawY - downRawY).roundToInt(),
+              )
+              applyPosition(clampFloatingMonitorPosition(target, currentBounds()), updateWindow = true)
+              persistCurrentPosition()
+            }
             FloatingMonitorGestureResult.Cancelled -> Unit
           }
           true

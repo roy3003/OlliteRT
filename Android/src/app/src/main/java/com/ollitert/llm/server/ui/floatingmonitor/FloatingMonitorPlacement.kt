@@ -57,6 +57,11 @@ class FloatingMonitorGestureTracker(
     active = false
   }
 
+  fun end(rawX: Float, rawY: Float): FloatingMonitorGestureResult {
+    move(rawX, rawY)
+    return end()
+  }
+
   fun end(): FloatingMonitorGestureResult {
     val result = when {
       cancelled || !active -> FloatingMonitorGestureResult.Cancelled
