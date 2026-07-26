@@ -17,6 +17,7 @@
 package com.ollitert.llm.server.ui.server.settings
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -180,6 +181,15 @@ class SettingsDefsTest {
     assertEquals(10080L, LOG_AUTO_DELETE.toBaseUnit(7L, "days"))
     assertEquals(420L, LOG_AUTO_DELETE.toBaseUnit(7L, "hours"))
     assertEquals(7L, LOG_AUTO_DELETE.toBaseUnit(7L, "minutes"))
+  }
+
+  @Test
+  fun `floating monitor is an opt-in auto-launch setting`() {
+    assertEquals("floating_monitor", FLOATING_MONITOR.key)
+    assertEquals("floating_monitor_enabled", FLOATING_MONITOR.prefsKey)
+    assertEquals(CardId.AUTO_LAUNCH, FLOATING_MONITOR.card)
+    assertFalse(FLOATING_MONITOR.default)
+    assertFalse(FLOATING_MONITOR.resetDefault)
   }
 
   @Test
