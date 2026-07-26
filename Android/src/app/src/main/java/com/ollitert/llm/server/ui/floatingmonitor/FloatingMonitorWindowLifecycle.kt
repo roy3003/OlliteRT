@@ -65,28 +65,29 @@ class FloatingMonitorWindowReconciler(
 ) {
   private var disposed = false
 
-  fun reconcile(model: FloatingMonitorRenderModel?) {
-    if (disposed) return
-
+  fun reconcile(model: FloatingMonitorRenderModel?): Boolean {
+    if (disposed) return model == null && !window.isAttached
     if (model == null) {
-      detachIfAttached()
-      return
+      return detachIfAttached()
     }
 
     if (!window.isAttached) {
-      try {
+      return try {
         window.attach(model)
-      } catch (e: RuntimeException) {
-        reportFailure(e)
+        window.isAttached
+      } catch (exception: RuntimeException) {
+        reportFailure(exception)
+        false
       }
-      return
     }
 
-    try {
+    return try {
       window.update(model)
-    } catch (e: RuntimeException) {
-      reportFailure(e)
+      window.isAttached
+    } catch (exception: RuntimeException) {
+      reportFailure(exception)
       detachIfAttached()
+      false
     }
   }
 
@@ -100,12 +101,14 @@ class FloatingMonitorWindowReconciler(
     disposed = true
   }
 
-  private fun detachIfAttached() {
-    if (!window.isAttached) return
-    try {
+  private fun detachIfAttached(): Boolean {
+    if (!window.isAttached) return true
+    return try {
       window.detach()
-    } catch (e: RuntimeException) {
-      reportFailure(e)
+      !window.isAttached
+    } catch (exception: RuntimeException) {
+      reportFailure(exception)
+      false
     }
   }
 
