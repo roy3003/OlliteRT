@@ -29,13 +29,13 @@ class FloatingMonitorRenderGateTest {
     val running = model(FloatingMonitorVisualState.Running)
     val processing = model(FloatingMonitorVisualState.Processing)
 
-    assertTrue(gate.shouldRender(running))
-    assertFalse(gate.shouldRender(running))
-    assertTrue(gate.shouldRender(processing))
+    assertTrue(gate.renderIfChanged(running) {})
+    assertFalse(gate.renderIfChanged(running) {})
+    assertTrue(gate.renderIfChanged(processing) {})
 
     gate.reset()
 
-    assertTrue(gate.shouldRender(processing))
+    assertTrue(gate.renderIfChanged(processing) {})
   }
 
   @Test

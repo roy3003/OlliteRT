@@ -19,8 +19,9 @@ package com.ollitert.llm.server.ui.floatingmonitor
 internal class FloatingMonitorRenderGate {
   private var lastModel: FloatingMonitorRenderModel? = null
 
-  fun shouldRender(model: FloatingMonitorRenderModel): Boolean {
+  fun renderIfChanged(model: FloatingMonitorRenderModel, render: () -> Unit): Boolean {
     if (model == lastModel) return false
+    render()
     lastModel = model
     return true
   }

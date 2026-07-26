@@ -93,7 +93,7 @@ internal class AndroidFloatingMonitorWindow(
   }
 
   private fun renderIfChanged(model: FloatingMonitorRenderModel) {
-    if (renderGate.shouldRender(model)) view.render(model)
+    renderGate.renderIfChanged(model) { view.render(model) }
   }
 
   @SuppressLint("ClickableViewAccessibility")
