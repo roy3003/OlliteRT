@@ -77,12 +77,13 @@ class FloatingMonitorController(
             permissionFlowInProgress = permissionFlowInProgress,
           )
         }.collectLatest { input ->
+          val retryBudget = FloatingMonitorRetryBudget(MAX_CONSECUTIVE_WINDOW_FAILURES)
           elapsedTracker.update(input.isInferring)
-          if (!render(input)) return@collectLatest
+          if (!render(input, retryBudget)) return@collectLatest
 
           while (currentCoroutineContext().isActive) {
             delay(METRIC_REFRESH_MILLIS)
-            if (!render(input)) return@collectLatest
+            if (!render(input, retryBudget)) return@collectLatest
           }
         }
       } catch (e: CancellationException) {
@@ -104,7 +105,7 @@ class FloatingMonitorController(
     reconciler.dispose()
   }
 
-  private fun render(input: CoreInput): Boolean {
+  private fun render(input: CoreInput, retryBudget: FloatingMonitorRetryBudget): Boolean {
     if (input.appIsForeground) tapSuppressed = false
 
     val visualState = deriveFloatingMonitorVisualState(
@@ -136,8 +137,12 @@ class FloatingMonitorController(
     } else {
       null
     }
-    reconciler.reconcile(model)
-    return model != null
+    val reconciled = reconciler.reconcile(model)
+    val retryAllowed = retryBudget.record(reconciled)
+    if (!reconciled && !retryAllowed) {
+      Log.w(TAG, "Floating monitor retry budget exhausted; waiting for a state change")
+    }
+    return model != null && retryAllowed
   }
 
   private fun handleTap() {
@@ -184,6 +189,7 @@ class FloatingMonitorController(
   private companion object {
     const val TAG = "OlliteRT.FloatMonitor"
     const val METRIC_REFRESH_MILLIS = 1_000L
+    const val MAX_CONSECUTIVE_WINDOW_FAILURES = 3
     const val OPEN_ACTIVITY_REQUEST_CODE = 72
   }
 }
