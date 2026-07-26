@@ -22,6 +22,7 @@ import android.graphics.PixelFormat
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowInsets
 import android.view.WindowManager
@@ -90,6 +91,14 @@ internal class AndroidFloatingMonitorWindow(
     } finally {
       if (!isAttached) renderGate.reset()
     }
+  }
+
+  override fun deactivate() {
+    view.setOnTouchListener(null)
+    view.setOnClickListener(null)
+    view.isClickable = false
+    view.visibility = View.GONE
+    renderGate.reset()
   }
 
   private fun renderIfChanged(model: FloatingMonitorRenderModel) {

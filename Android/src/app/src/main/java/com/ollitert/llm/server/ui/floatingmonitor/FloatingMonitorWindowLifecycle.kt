@@ -57,6 +57,8 @@ interface FloatingMonitorWindowPort {
   fun update(model: FloatingMonitorRenderModel)
 
   fun detach()
+
+  fun deactivate()
 }
 
 class FloatingMonitorWindowReconciler(
@@ -97,6 +99,13 @@ class FloatingMonitorWindowReconciler(
     while (window.isAttached && attempts < MAX_DISPOSE_DETACH_ATTEMPTS) {
       detachIfAttached()
       attempts += 1
+    }
+    if (window.isAttached) {
+      try {
+        window.deactivate()
+      } catch (exception: RuntimeException) {
+        reportFailure(exception)
+      }
     }
     disposed = true
   }

@@ -204,7 +204,7 @@ class FloatingMonitorWindowReconcilerTest {
       isAttached = false
     }
 
-    fun deactivate() {
+    override fun deactivate() {
       calls += "deactivate"
       deactivated = true
     }
