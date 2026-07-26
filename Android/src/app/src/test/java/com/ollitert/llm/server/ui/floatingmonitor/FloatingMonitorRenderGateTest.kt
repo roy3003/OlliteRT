@@ -16,6 +16,7 @@
 
 package com.ollitert.llm.server.ui.floatingmonitor
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,6 +36,26 @@ class FloatingMonitorRenderGateTest {
     gate.reset()
 
     assertTrue(gate.shouldRender(processing))
+  }
+
+  @Test
+  fun `failed render is not cached`() {
+    val gate = FloatingMonitorRenderGate()
+    val running = model(FloatingMonitorVisualState.Running)
+    var attempts = 0
+
+    runCatching {
+      gate.renderIfChanged(running) {
+        attempts += 1
+        error("render")
+      }
+    }
+    val rendered = gate.renderIfChanged(running) {
+      attempts += 1
+    }
+
+    assertTrue(rendered)
+    assertEquals(2, attempts)
   }
 
   private fun model(state: FloatingMonitorVisualState) =
