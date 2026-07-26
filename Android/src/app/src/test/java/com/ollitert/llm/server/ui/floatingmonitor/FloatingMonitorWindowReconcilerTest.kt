@@ -116,6 +116,20 @@ class FloatingMonitorWindowReconcilerTest {
   }
 
   @Test
+  fun `attach failure is reported and later reconcile retries`() {
+    val failures = mutableListOf<String>()
+    val window = FakeWindow(failNextAttach = true)
+    val reconciler = FloatingMonitorWindowReconciler(window) { failures += it.message.orEmpty() }
+
+    assertFalse(reconciler.reconcile(model(FloatingMonitorVisualState.Running)))
+    assertTrue(reconciler.reconcile(model(FloatingMonitorVisualState.Running)))
+
+    assertEquals(listOf("attach", "attach:Running"), window.calls)
+    assertEquals(listOf("attach"), failures)
+    assertTrue(window.isAttached)
+  }
+
+  @Test
   fun `dispose retries a transient detach failure`() {
     val failures = mutableListOf<String>()
     val window = FakeWindow(failNextDetach = true)
