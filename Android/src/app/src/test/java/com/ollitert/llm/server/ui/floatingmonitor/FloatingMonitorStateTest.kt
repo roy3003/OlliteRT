@@ -18,6 +18,7 @@ package com.ollitert.llm.server.ui.floatingmonitor
 
 import com.ollitert.llm.server.common.ServerStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -47,15 +48,50 @@ class FloatingMonitorStateTest {
 
   @Test
   fun `monitor is visible when every visibility gate is satisfied`() {
-    assertTrue(
-      shouldShowFloatingMonitor(
-        settingEnabled = true,
-        overlayPermissionGranted = true,
-        permissionFlowInProgress = false,
-        appIsForeground = false,
-        serviceIsAlive = true,
-        visualState = FloatingMonitorVisualState.Running,
-      )
-    )
+    assertTrue(showMonitor())
   }
+
+  @Test
+  fun `non-running server states are hidden regardless of inference flag`() {
+    val nonRunningStates =
+      listOf(ServerStatus.STOPPED, ServerStatus.LOADING, ServerStatus.ERROR)
+
+    for (status in nonRunningStates) {
+      assertEquals(
+        FloatingMonitorVisualState.Hidden,
+        deriveFloatingMonitorVisualState(status = status, isInferring = false),
+      )
+      assertEquals(
+        FloatingMonitorVisualState.Hidden,
+        deriveFloatingMonitorVisualState(status = status, isInferring = true),
+      )
+    }
+  }
+
+  @Test
+  fun `monitor is hidden when any visibility gate fails`() {
+    assertFalse(showMonitor(settingEnabled = false))
+    assertFalse(showMonitor(overlayPermissionGranted = false))
+    assertFalse(showMonitor(permissionFlowInProgress = true))
+    assertFalse(showMonitor(appIsForeground = true))
+    assertFalse(showMonitor(serviceIsAlive = false))
+    assertFalse(showMonitor(visualState = FloatingMonitorVisualState.Hidden))
+  }
+
+  private fun showMonitor(
+    settingEnabled: Boolean = true,
+    overlayPermissionGranted: Boolean = true,
+    permissionFlowInProgress: Boolean = false,
+    appIsForeground: Boolean = false,
+    serviceIsAlive: Boolean = true,
+    visualState: FloatingMonitorVisualState = FloatingMonitorVisualState.Running,
+  ): Boolean =
+    shouldShowFloatingMonitor(
+      settingEnabled = settingEnabled,
+      overlayPermissionGranted = overlayPermissionGranted,
+      permissionFlowInProgress = permissionFlowInProgress,
+      appIsForeground = appIsForeground,
+      serviceIsAlive = serviceIsAlive,
+      visualState = visualState,
+    )
 }
