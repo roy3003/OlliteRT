@@ -29,6 +29,7 @@ import com.ollitert.llm.server.data.DataStoreRepository
 import com.ollitert.llm.server.data.ServerPrefs
 import com.ollitert.llm.server.data.cleanupStaleImportTmpFiles
 import com.ollitert.llm.server.data.db.RequestLogPersistence
+import com.ollitert.llm.server.ui.floatingmonitor.FloatingMonitorPermissionCoordinator
 import com.ollitert.llm.server.worker.AllowlistRefreshWorker
 import com.ollitert.llm.server.worker.UpdateCheckWorker
 import dagger.hilt.EntryPoint
@@ -66,6 +67,15 @@ class OlliteRTApplication : Application(), Configuration.Provider, SingletonImag
   @InstallIn(SingletonComponent::class)
   interface DataStoreEntryPoint {
     fun dataStoreRepository(): DataStoreRepository
+  }
+
+  /** Entry point for the disposable floating monitor hosted by the non-Hilt Service. */
+  @EntryPoint
+  @InstallIn(SingletonComponent::class)
+  interface FloatingMonitorEntryPoint {
+    fun lifecycleProvider(): OlliteRTLifecycleProvider
+
+    fun permissionCoordinator(): FloatingMonitorPermissionCoordinator
   }
 
   @EarlyEntryPoint

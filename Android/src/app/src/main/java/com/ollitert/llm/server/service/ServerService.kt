@@ -48,6 +48,7 @@ import com.ollitert.llm.server.data.llmSupportThinking
 import com.ollitert.llm.server.runtime.ServerLlmModelHelper
 import com.ollitert.llm.server.service.ServerService.Companion.queueReloadAfterLoad
 import com.ollitert.llm.server.service.ServerService.Companion.reload
+import com.ollitert.llm.server.ui.floatingmonitor.FloatingMonitorController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -80,6 +81,7 @@ class ServerService : Service() {
   private val inferenceLock = Any()
   private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private var loadJob: Job? = null
+  private var floatingMonitorController: FloatingMonitorController? = null
 
   // Notification state — saved after warmup so we can refresh the notification with live request count.
   // @Volatile: written from background load thread, read from main thread for notification refresh.
@@ -177,6 +179,27 @@ class ServerService : Service() {
     } catch (e: Exception) {
       Log.e(TAG, "Service initialization failed — stopping immediately", e)
       stopSelf()
+    }
+
+    if (::modelLifecycle.isInitialized) initializeFloatingMonitorBestEffort()
+  }
+
+  private fun initializeFloatingMonitorBestEffort() {
+    try {
+      if (!ServerPrefs.isFloatingMonitorEnabled(this)) return
+      val entryPoint = dagger.hilt.android.EntryPointAccessors.fromApplication(
+        applicationContext,
+        OlliteRTApplication.FloatingMonitorEntryPoint::class.java,
+      )
+      floatingMonitorController = FloatingMonitorController(
+        context = this,
+        lifecycleProvider = entryPoint.lifecycleProvider(),
+        permissionCoordinator = entryPoint.permissionCoordinator(),
+        settingEnabled = true,
+      ).also { it.start() }
+    } catch (e: RuntimeException) {
+      Log.w(TAG, "Floating monitor initialization failed; server will continue", e)
+      floatingMonitorController = null
     }
   }
 
@@ -781,6 +804,13 @@ class ServerService : Service() {
   }
 
   override fun onDestroy() {
+    try {
+      floatingMonitorController?.dispose()
+    } catch (e: RuntimeException) {
+      Log.w(TAG, "Floating monitor disposal failed; continuing server cleanup", e)
+    }
+    floatingMonitorController = null
+
     activeInstance = null
     cancelKeepAliveTimer()
     keepAliveUnloadedModelName = null
