@@ -28,8 +28,8 @@ fun deriveFloatingMonitorVisualState(
   status: ServerStatus,
   isInferring: Boolean,
 ): FloatingMonitorVisualState =
-  if (status == ServerStatus.RUNNING && !isInferring) {
-    FloatingMonitorVisualState.Running
-  } else {
-    FloatingMonitorVisualState.Hidden
+  when {
+    status != ServerStatus.RUNNING -> FloatingMonitorVisualState.Hidden
+    isInferring -> FloatingMonitorVisualState.Processing
+    else -> FloatingMonitorVisualState.Running
   }
