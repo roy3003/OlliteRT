@@ -23,6 +23,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Typeface
+import android.util.Log
 import android.view.View
 import kotlin.math.roundToInt
 
@@ -85,6 +86,14 @@ internal class FloatingMonitorView(
   override fun onDraw(canvas: Canvas) {
     super.onDraw(canvas)
     val current = model ?: return
+    try {
+      drawMonitor(canvas, current)
+    } catch (e: RuntimeException) {
+      Log.w(TAG, "Floating monitor draw failed", e)
+    }
+  }
+
+  private fun drawMonitor(canvas: Canvas, current: FloatingMonitorRenderModel) {
     val width = width.toFloat()
     val height = height.toFloat()
 
@@ -111,6 +120,7 @@ internal class FloatingMonitorView(
   }
 
   private companion object {
+    const val TAG = "OlliteRT.FloatView"
     const val MONITOR_WIDTH_DP = 96f
     const val MONITOR_HEIGHT_DP = 108f
     const val LABEL_COLOR = 0xFFADB5BD.toInt()

@@ -30,7 +30,6 @@ internal class AndroidFloatingMonitorWindow(
   private val appContext = context.applicationContext
   private val windowManager = appContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
   private val view = FloatingMonitorView(appContext, onTap)
-  private var attached = false
   private val layoutParams = WindowManager.LayoutParams(
     ViewGroup.LayoutParams.WRAP_CONTENT,
     ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -45,7 +44,7 @@ internal class AndroidFloatingMonitorWindow(
   }
 
   override val isAttached: Boolean
-    get() = attached || view.parent != null
+    get() = view.parent != null
 
   override fun attach(model: FloatingMonitorRenderModel) {
     if (isAttached) {
@@ -54,13 +53,7 @@ internal class AndroidFloatingMonitorWindow(
     }
 
     view.render(model)
-    try {
-      windowManager.addView(view, layoutParams)
-      attached = true
-    } catch (e: RuntimeException) {
-      attached = view.parent != null
-      throw e
-    }
+    windowManager.addView(view, layoutParams)
   }
 
   override fun update(model: FloatingMonitorRenderModel) {
@@ -69,11 +62,7 @@ internal class AndroidFloatingMonitorWindow(
 
   override fun detach() {
     if (!isAttached) return
-    try {
-      windowManager.removeViewImmediate(view)
-    } finally {
-      attached = view.parent != null
-    }
+    windowManager.removeViewImmediate(view)
   }
 
   private fun dp(value: Float): Int =
