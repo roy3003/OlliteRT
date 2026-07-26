@@ -32,4 +32,15 @@ class FloatingMonitorStateTest {
       ),
     )
   }
+
+  @Test
+  fun `running server with inference maps to processing monitor`() {
+    assertEquals(
+      FloatingMonitorVisualState.Processing,
+      deriveFloatingMonitorVisualState(
+        status = ServerStatus.RUNNING,
+        isInferring = true,
+      ),
+    )
+  }
 }
