@@ -1,0 +1,158 @@
+/*
+ * Copyright 2025-2026 @NightMean (https://github.com/NightMean)
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.ollitert.llm.server.ui.floatingmonitor
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+class FloatingMonitorWindowReconcilerTest {
+
+  @Test
+  fun `render model uses truthful state-specific metrics`() {
+    assertNull(
+      deriveFloatingMonitorRenderModel(
+        visualState = FloatingMonitorVisualState.Hidden,
+        requestCount = 123,
+        errorCount = 4,
+        processingElapsedMillis = 5_000,
+      )
+    )
+
+    assertEquals(
+      FloatingMonitorRenderModel(
+        visualState = FloatingMonitorVisualState.Running,
+        requestValue = "1,234",
+        secondaryValue = "5",
+        secondaryLabel = "err",
+      ),
+      deriveFloatingMonitorRenderModel(
+        visualState = FloatingMonitorVisualState.Running,
+        requestCount = 1_234,
+        errorCount = 5,
+        processingElapsedMillis = null,
+      ),
+    )
+
+    assertEquals(
+      FloatingMonitorRenderModel(
+        visualState = FloatingMonitorVisualState.Processing,
+        requestValue = "99,999+",
+        secondaryValue = "1:01",
+        secondaryLabel = "proc",
+      ),
+      deriveFloatingMonitorRenderModel(
+        visualState = FloatingMonitorVisualState.Processing,
+        requestCount = 100_000,
+        errorCount = 999,
+        processingElapsedMillis = 61_000,
+      ),
+    )
+  }
+
+  @Test
+  fun `visible models attach once update in place and hidden detaches once`() {
+    val window = FakeWindow()
+    val reconciler = FloatingMonitorWindowReconciler(window)
+    val running = model(FloatingMonitorVisualState.Running)
+    val processing = model(FloatingMonitorVisualState.Processing)
+
+    reconciler.reconcile(running)
+    reconciler.reconcile(processing)
+    reconciler.reconcile(null)
+    reconciler.reconcile(null)
+
+    assertEquals(listOf("attach:Running", "update:Processing", "detach"), window.calls)
+    assertFalse(window.isAttached)
+  }
+
+  @Test
+  fun `window failures are contained and later reconcile can retry`() {
+    val failures = mutableListOf<String>()
+    val window = FakeWindow(failNextAttach = true)
+    val reconciler = FloatingMonitorWindowReconciler(window) { failures += it.message.orEmpty() }
+    val running = model(FloatingMonitorVisualState.Running)
+
+    reconciler.reconcile(running)
+    reconciler.reconcile(running)
+
+    window.failNextUpdate = true
+    reconciler.reconcile(running)
+    reconciler.reconcile(running)
+
+    assertEquals(
+      listOf("attach", "attach:Running", "update", "detach", "attach:Running"),
+      window.calls,
+    )
+    assertEquals(listOf("attach", "update"), failures)
+  }
+
+  @Test
+  fun `dispose detaches and permanently suppresses later attach`() {
+    val window = FakeWindow()
+    val reconciler = FloatingMonitorWindowReconciler(window)
+
+    reconciler.reconcile(model(FloatingMonitorVisualState.Running))
+    reconciler.dispose()
+    reconciler.reconcile(model(FloatingMonitorVisualState.Processing))
+
+    assertEquals(listOf("attach:Running", "detach"), window.calls)
+    assertFalse(window.isAttached)
+  }
+
+  private fun model(state: FloatingMonitorVisualState) =
+    FloatingMonitorRenderModel(
+      visualState = state,
+      requestValue = "1",
+      secondaryValue = "0",
+      secondaryLabel = if (state == FloatingMonitorVisualState.Running) "err" else "proc",
+    )
+
+  private class FakeWindow(
+    private var failNextAttach: Boolean = false,
+  ) : FloatingMonitorWindowPort {
+    override var isAttached: Boolean = false
+      private set
+    val calls = mutableListOf<String>()
+    var failNextUpdate: Boolean = false
+
+    override fun attach(model: FloatingMonitorRenderModel) {
+      if (failNextAttach) {
+        failNextAttach = false
+        calls += "attach"
+        throw IllegalStateException("attach")
+      }
+      isAttached = true
+      calls += "attach:${model.visualState.name}"
+    }
+
+    override fun update(model: FloatingMonitorRenderModel) {
+      if (failNextUpdate) {
+        failNextUpdate = false
+        calls += "update"
+        throw IllegalStateException("update")
+      }
+      calls += "update:${model.visualState.name}"
+    }
+
+    override fun detach() {
+      isAttached = false
+      calls += "detach"
+    }
+  }
+}
