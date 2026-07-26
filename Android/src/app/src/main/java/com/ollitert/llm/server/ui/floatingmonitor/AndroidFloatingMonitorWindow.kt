@@ -37,6 +37,7 @@ internal class AndroidFloatingMonitorWindow(
   private val monitorWidth = dp(FLOATING_MONITOR_WIDTH_DP)
   private val monitorHeight = dp(FLOATING_MONITOR_HEIGHT_DP)
   private val view = FloatingMonitorView(appContext, onTap)
+  private val renderGate = FloatingMonitorRenderGate()
   private val gestureTracker = FloatingMonitorGestureTracker(
     ViewConfiguration.get(appContext).scaledTouchSlop.toFloat()
   )
@@ -69,19 +70,30 @@ internal class AndroidFloatingMonitorWindow(
       return
     }
 
-    view.render(model)
+    renderIfChanged(model)
     restorePlacementForAttach()
     windowManager.addView(view, layoutParams)
   }
 
   override fun update(model: FloatingMonitorRenderModel) {
-    view.render(model)
+    renderIfChanged(model)
     reconcileChangedBounds()
   }
 
   override fun detach() {
-    if (!isAttached) return
-    windowManager.removeViewImmediate(view)
+    if (!isAttached) {
+      renderGate.reset()
+      return
+    }
+    try {
+      windowManager.removeViewImmediate(view)
+    } finally {
+      if (!isAttached) renderGate.reset()
+    }
+  }
+
+  private fun renderIfChanged(model: FloatingMonitorRenderModel) {
+    if (renderGate.shouldRender(model)) view.render(model)
   }
 
   @SuppressLint("ClickableViewAccessibility")
