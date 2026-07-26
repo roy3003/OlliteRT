@@ -32,9 +32,7 @@ import com.ollitert.llm.server.MainActivity
 import com.ollitert.llm.server.OlliteRTApplication
 import com.ollitert.llm.server.R
 import com.ollitert.llm.server.common.ErrorCategory
-import com.ollitert.llm.server.common.EndpointInfo
-import com.ollitert.llm.server.common.getAvailableEndpoints
-import com.ollitert.llm.server.common.resolveActiveEndpoint
+import com.ollitert.llm.server.common.getWifiIpAddress
 import com.ollitert.llm.server.data.DATASTORE_READ_TIMEOUT_MS
 import com.ollitert.llm.server.data.LOG_ERROR_PREVIEW_LONG_CHARS
 import com.ollitert.llm.server.data.ServerPrefs
@@ -239,10 +237,7 @@ class ServerService : Service() {
     val startSource = intent.getStringExtra(EXTRA_START_SOURCE)
 
     // ── Ktor server setup (no model dependency) ─────────────────────────────
-    // Scan once; resolveActiveEndpoint also scans internally but persists the choice.
-    val allEndpoints = getAvailableEndpoints()
-    val activeEndpoint = resolveActiveEndpoint(this)
-    val wifiIp = activeEndpoint.ipAddress.let { if (it == "0.0.0.0") null else it }
+    val wifiIp = getWifiIpAddress(this)
     val notifState = buildNotificationIntents(wifiIp, port)
 
     NotificationHelper.update(
@@ -312,7 +307,7 @@ class ServerService : Service() {
 
       synchronized(modelLifecycle.keepAliveLock) { defaultModel = model }
 
-      loadModelOnThread(model, thisGeneration, wifiIp, notifState, allEndpoints, activeEndpoint)
+      loadModelOnThread(model, thisGeneration, wifiIp, notifState)
     }
 
     return START_STICKY
@@ -555,8 +550,6 @@ class ServerService : Service() {
     thisGeneration: Long,
     wifiIp: String?,
     notifState: LoadNotificationState,
-    allEndpoints: List<EndpointInfo>,
-    activeEndpoint: EndpointInfo,
   ) {
     try {
       checkStorageBeforeLoad()
@@ -577,7 +570,7 @@ class ServerService : Service() {
       )
       ServerMetrics.setThinkingEnabled(model.isThinkingEnabled)
       ServerMetrics.setSpeculativeDecodingEnabled(model.isSpeculativeDecodingEnabled)
-      ServerMetrics.onServerRunning(wifiIp, allEndpoints, activeEndpoint)
+      ServerMetrics.onServerRunning(wifiIp)
       resetKeepAliveTimer()
       RequestLogStore.addEvent("Model ready: ${model.name} (${SystemClock.elapsedRealtime() - loadStart}ms)", modelName = model.name, category = EventCategory.MODEL)
       logVerboseModelConfig(model)
