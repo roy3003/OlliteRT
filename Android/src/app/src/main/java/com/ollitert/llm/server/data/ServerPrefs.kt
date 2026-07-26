@@ -103,6 +103,8 @@ private const val DEFAULT_KEEP_ALIVE_MINUTES = 5
 
 private const val KEY_AUTO_START_ON_BOOT = "auto_start_on_boot"
 private const val KEY_FLOATING_MONITOR_ENABLED = "floating_monitor_enabled"
+private const val KEY_FLOATING_MONITOR_POSITION_X = "floating_monitor_position_x"
+private const val KEY_FLOATING_MONITOR_POSITION_Y = "floating_monitor_position_y"
 private const val KEY_CLEAR_LOGS_ON_STOP = "clear_logs_on_stop"
 private const val KEY_CONFIRM_CLEAR_LOGS = "confirm_clear_logs"
 
@@ -504,6 +506,42 @@ object ServerPrefs {
 
   fun isFloatingMonitorEnabled(context: Context): Boolean = get(context, FLOATING_MONITOR_ENABLED)
   fun setFloatingMonitorEnabled(context: Context, enabled: Boolean) = set(context, FLOATING_MONITOR_ENABLED, enabled)
+
+  fun getFloatingMonitorPosition(context: Context): Pair<Float, Float>? {
+    val preferences = prefs(context)
+    if (!preferences.contains(KEY_FLOATING_MONITOR_POSITION_X) ||
+      !preferences.contains(KEY_FLOATING_MONITOR_POSITION_Y)
+    ) {
+      return null
+    }
+    return try {
+      val x = preferences.getFloat(KEY_FLOATING_MONITOR_POSITION_X, 0f)
+      val y = preferences.getFloat(KEY_FLOATING_MONITOR_POSITION_Y, 0f)
+      if (!x.isFinite() || !y.isFinite()) null else x.coerceIn(0f, 1f) to y.coerceIn(0f, 1f)
+    } catch (e: ClassCastException) {
+      Log.w(TAG, "Invalid floating monitor position preferences; resetting", e)
+      resetFloatingMonitorPosition(context)
+      null
+    }
+  }
+
+  fun setFloatingMonitorPosition(context: Context, x: Float, y: Float) {
+    if (!x.isFinite() || !y.isFinite()) {
+      resetFloatingMonitorPosition(context)
+      return
+    }
+    prefs(context).edit {
+      putFloat(KEY_FLOATING_MONITOR_POSITION_X, x.coerceIn(0f, 1f))
+      putFloat(KEY_FLOATING_MONITOR_POSITION_Y, y.coerceIn(0f, 1f))
+    }
+  }
+
+  fun resetFloatingMonitorPosition(context: Context) {
+    prefs(context).edit {
+      remove(KEY_FLOATING_MONITOR_POSITION_X)
+      remove(KEY_FLOATING_MONITOR_POSITION_Y)
+    }
+  }
 
   fun isClearLogsOnStop(context: Context): Boolean = get(context, CLEAR_LOGS_ON_STOP)
   fun setClearLogsOnStop(context: Context, enabled: Boolean) = set(context, CLEAR_LOGS_ON_STOP, enabled)

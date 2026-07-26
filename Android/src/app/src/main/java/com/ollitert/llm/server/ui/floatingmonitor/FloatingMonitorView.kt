@@ -27,6 +27,9 @@ import android.util.Log
 import android.view.View
 import kotlin.math.roundToInt
 
+internal const val FLOATING_MONITOR_WIDTH_DP = 96f
+internal const val FLOATING_MONITOR_HEIGHT_DP = 108f
+
 @SuppressLint("ViewConstructor")
 internal class FloatingMonitorView(
   context: Context,
@@ -75,8 +78,8 @@ internal class FloatingMonitorView(
   }
 
   override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-    val desiredWidth = (MONITOR_WIDTH_DP * density).roundToInt()
-    val desiredHeight = (MONITOR_HEIGHT_DP * density).roundToInt()
+    val desiredWidth = (FLOATING_MONITOR_WIDTH_DP * density).roundToInt()
+    val desiredHeight = (FLOATING_MONITOR_HEIGHT_DP * density).roundToInt()
     setMeasuredDimension(
       resolveSize(desiredWidth, widthMeasureSpec),
       resolveSize(desiredHeight, heightMeasureSpec),
@@ -121,8 +124,6 @@ internal class FloatingMonitorView(
 
   private companion object {
     const val TAG = "OlliteRT.FloatView"
-    const val MONITOR_WIDTH_DP = 96f
-    const val MONITOR_HEIGHT_DP = 108f
     const val LABEL_COLOR = 0xFFADB5BD.toInt()
     const val RUNNING_FILL = 0xFF12271E.toInt()
     const val RUNNING_BORDER = 0xFF55D68B.toInt()

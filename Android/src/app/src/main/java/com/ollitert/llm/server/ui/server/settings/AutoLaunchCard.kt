@@ -17,6 +17,7 @@
 package com.ollitert.llm.server.ui.server.settings
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -183,6 +184,17 @@ internal fun AutoLaunchCard(
           Spacer(modifier = Modifier.weight(1f))
           TextButton(onClick = onRequestOverlayPermission) {
             Text(stringResource(R.string.settings_floating_monitor_grant_permission))
+          }
+        }
+      }
+
+      if (vm.floatingMonitorEntry.current) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.End,
+        ) {
+          TextButton(onClick = vm::resetFloatingMonitorPosition) {
+            Text(stringResource(R.string.settings_floating_monitor_reset_position))
           }
         }
       }

@@ -190,6 +190,10 @@ class SettingsViewModel @Inject constructor(
     floatingMonitorPermissionCoordinator.endPermissionFlow()
   }
 
+  fun resetFloatingMonitorPosition() {
+    ServerPrefs.resetFloatingMonitorPosition(context)
+  }
+
   // ─── Search ──────────────────────────────────────────────────────────────
   var searchQuery by mutableStateOf("")
 

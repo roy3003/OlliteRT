@@ -119,6 +119,7 @@ class SettingsViewModelTest {
     every { ServerPrefs.setTimeoutWarmup(any(), any()) } returns Unit
     every { ServerPrefs.setTimeoutKeepAliveRecheckSeconds(any(), any()) } returns Unit
     every { ServerPrefs.setTimeoutCleanupAwait(any(), any()) } returns Unit
+    every { ServerPrefs.resetFloatingMonitorPosition(any()) } returns Unit
     every { ServerPrefs.resetToDefaults(any()) } returns Unit
     every { ServerPrefs.dumpToLogcat(any()) } returns Unit
 
@@ -384,6 +385,14 @@ class SettingsViewModelTest {
   }
 
   // --- Reset ---
+
+  @Test
+  fun resetFloatingMonitorPositionOnlyClearsPosition() {
+    vm.resetFloatingMonitorPosition()
+
+    verify(exactly = 1) { ServerPrefs.resetFloatingMonitorPosition(mockContext) }
+    verify(exactly = 0) { ServerPrefs.resetToDefaults(any()) }
+  }
 
   @Test
   fun resetToDefaultsCallsPrefsReset() {
