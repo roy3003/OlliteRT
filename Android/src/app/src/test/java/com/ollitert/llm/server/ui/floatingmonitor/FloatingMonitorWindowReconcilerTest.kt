@@ -115,6 +115,20 @@ class FloatingMonitorWindowReconcilerTest {
     assertFalse(window.isAttached)
   }
 
+  @Test
+  fun `dispose retries a transient detach failure`() {
+    val failures = mutableListOf<String>()
+    val window = FakeWindow(failNextDetach = true)
+    val reconciler = FloatingMonitorWindowReconciler(window) { failures += it.message.orEmpty() }
+
+    reconciler.reconcile(model(FloatingMonitorVisualState.Running))
+    reconciler.dispose()
+
+    assertEquals(listOf("attach:Running", "detach", "detach"), window.calls)
+    assertEquals(listOf("detach"), failures)
+    assertFalse(window.isAttached)
+  }
+
   private fun model(state: FloatingMonitorVisualState) =
     FloatingMonitorRenderModel(
       visualState = state,
@@ -125,6 +139,7 @@ class FloatingMonitorWindowReconcilerTest {
 
   private class FakeWindow(
     private var failNextAttach: Boolean = false,
+    private var failNextDetach: Boolean = false,
   ) : FloatingMonitorWindowPort {
     override var isAttached: Boolean = false
       private set
@@ -151,8 +166,12 @@ class FloatingMonitorWindowReconcilerTest {
     }
 
     override fun detach() {
-      isAttached = false
       calls += "detach"
+      if (failNextDetach) {
+        failNextDetach = false
+        throw IllegalStateException("detach")
+      }
+      isAttached = false
     }
   }
 }
