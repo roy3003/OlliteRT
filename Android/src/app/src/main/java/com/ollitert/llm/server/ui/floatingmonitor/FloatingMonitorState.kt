@@ -33,3 +33,18 @@ fun deriveFloatingMonitorVisualState(
     isInferring -> FloatingMonitorVisualState.Processing
     else -> FloatingMonitorVisualState.Running
   }
+
+fun shouldShowFloatingMonitor(
+  settingEnabled: Boolean,
+  overlayPermissionGranted: Boolean,
+  permissionFlowInProgress: Boolean,
+  appIsForeground: Boolean,
+  serviceIsAlive: Boolean,
+  visualState: FloatingMonitorVisualState,
+): Boolean =
+  settingEnabled &&
+    overlayPermissionGranted &&
+    !permissionFlowInProgress &&
+    !appIsForeground &&
+    serviceIsAlive &&
+    visualState != FloatingMonitorVisualState.Hidden
