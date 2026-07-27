@@ -509,7 +509,7 @@ class InferenceGatewayTest {
   @Test
   fun cancellationTriggersCancelInference() = runBlocking {
     val threadPool = Executors.newSingleThreadExecutor()
-    var cancelled = false
+    val cancelled = AtomicBoolean(false)
     val inferenceStarted = CountDownLatch(1)
     try {
       val job = launch(Dispatchers.Default) {
@@ -521,16 +521,15 @@ class InferenceGatewayTest {
           resetConversation = {},
           runInference = { _, _, _ ->
             inferenceStarted.countDown()
-            Thread.sleep(5000)
           },
-          cancelInference = { cancelled = true },
+          cancelInference = { cancelled.set(true) },
           elapsedMs = { tick() },
         )
       }
       assertTrue("inference should start within 5s", inferenceStarted.await(5, TimeUnit.SECONDS))
       job.cancel()
       job.join()
-      assertTrue("cancelInference should be called on coroutine cancellation", cancelled)
+      assertTrue("cancelInference should be called on coroutine cancellation", cancelled.get())
     } finally {
       threadPool.shutdownNow()
     }
