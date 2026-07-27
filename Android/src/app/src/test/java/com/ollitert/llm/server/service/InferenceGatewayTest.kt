@@ -31,6 +31,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 class InferenceGatewayTest {
 
@@ -477,6 +478,69 @@ class InferenceGatewayTest {
     } finally {
       releaseFirst.countDown()
       threadPool.shutdownNow()
+    }
+  }
+
+  @Test
+  fun callerCancellationWaitsForRecoveryAndFinish() = runBlocking {
+    val threadPool = Executors.newSingleThreadExecutor()
+    val nativeStarted = CountDownLatch(1)
+    val recoveryStarted = CountDownLatch(1)
+    val allowRecoveryToFinish = CountDownLatch(1)
+    val callerFinished = CountDownLatch(1)
+    val nativeError = AtomicReference<((String) -> Unit)?>(null)
+
+    try {
+      val job = launch(Dispatchers.Default) {
+        try {
+          InferenceGateway.execute(
+            timeoutSeconds = 30,
+            executor = threadPool,
+            inferenceLock = Any(),
+            operation = object : InferenceGateway.NativeOperation {
+              override fun prepare() = Unit
+
+              override fun dispatch(
+                onPartial: (partial: String, done: Boolean, thought: String?) -> Unit,
+                onError: (message: String) -> Unit,
+              ) {
+                nativeError.set(onError)
+                nativeStarted.countDown()
+              }
+
+              override fun cancel() {
+                nativeError.get()?.invoke("cancelled")
+              }
+
+              override fun recover() {
+                recoveryStarted.countDown()
+                allowRecoveryToFinish.await(2, TimeUnit.SECONDS)
+              }
+
+              override fun finish() = Unit
+            },
+            elapsedMs = { 0L },
+          )
+        } finally {
+          callerFinished.countDown()
+        }
+      }
+
+      assertTrue("native inference did not start", nativeStarted.await(2, TimeUnit.SECONDS))
+      job.cancel()
+      assertTrue("recovery did not start", recoveryStarted.await(2, TimeUnit.SECONDS))
+      assertTrue(
+        "caller returned before recovery and finish completed",
+        !callerFinished.await(100, TimeUnit.MILLISECONDS),
+      )
+
+      allowRecoveryToFinish.countDown()
+      assertTrue("caller did not finish after recovery", callerFinished.await(2, TimeUnit.SECONDS))
+      job.join()
+    } finally {
+      allowRecoveryToFinish.countDown()
+      threadPool.shutdownNow()
+      threadPool.awaitTermination(2, TimeUnit.SECONDS)
     }
   }
 
