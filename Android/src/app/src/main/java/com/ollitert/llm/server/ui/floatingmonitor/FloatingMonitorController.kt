@@ -67,18 +67,20 @@ class FloatingMonitorController(
         combine(
           ServerMetrics.status,
           ServerMetrics.isInferring,
+          ServerMetrics.inferenceSequence,
           lifecycleProvider.isAppInForeground,
           permissionCoordinator.permissionFlowInProgress,
-        ) { status, isInferring, appIsForeground, permissionFlowInProgress ->
+        ) { status, isInferring, inferenceSequence, appIsForeground, permissionFlowInProgress ->
           CoreInput(
             status = status,
             isInferring = isInferring,
+            inferenceSequence = inferenceSequence,
             appIsForeground = appIsForeground,
             permissionFlowInProgress = permissionFlowInProgress,
           )
         }.collectLatest { input ->
           val retryBudget = FloatingMonitorRetryBudget(MAX_CONSECUTIVE_WINDOW_FAILURES)
-          elapsedTracker.update(input.isInferring)
+          elapsedTracker.update(input.isInferring, input.inferenceSequence)
           if (!render(input, retryBudget)) return@collectLatest
 
           while (currentCoroutineContext().isActive) {
@@ -186,6 +188,7 @@ class FloatingMonitorController(
   private data class CoreInput(
     val status: ServerStatus,
     val isInferring: Boolean,
+    val inferenceSequence: Long,
     val appIsForeground: Boolean,
     val permissionFlowInProgress: Boolean,
   )

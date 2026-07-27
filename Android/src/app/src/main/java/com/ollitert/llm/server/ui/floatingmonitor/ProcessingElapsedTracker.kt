@@ -20,11 +20,16 @@ class ProcessingElapsedTracker(
   private val elapsedRealtime: () -> Long,
 ) {
   private var processingStartedAt: Long? = null
+  private var activeInferenceSequence: Long? = null
 
-  fun update(isInferring: Boolean) {
+  fun update(isInferring: Boolean, inferenceSequence: Long) {
     if (isInferring) {
-      if (processingStartedAt == null) processingStartedAt = elapsedRealtime()
+      if (activeInferenceSequence != inferenceSequence) {
+        activeInferenceSequence = inferenceSequence
+        processingStartedAt = elapsedRealtime()
+      }
     } else {
+      activeInferenceSequence = null
       processingStartedAt = null
     }
   }
@@ -34,6 +39,7 @@ class ProcessingElapsedTracker(
   }
 
   fun dispose() {
+    activeInferenceSequence = null
     processingStartedAt = null
   }
 }

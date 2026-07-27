@@ -19,7 +19,6 @@ package com.ollitert.llm.server.ui.floatingmonitor
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Typeface
@@ -30,6 +29,8 @@ import kotlin.math.roundToInt
 internal const val FLOATING_MONITOR_WIDTH_DP = 96f
 internal const val FLOATING_MONITOR_HEIGHT_DP = 108f
 internal const val FLOATING_MONITOR_VALUE_TEXT_SIZE_SP = 18f
+internal const val FLOATING_MONITOR_SECONDS_SUFFIX_TEXT_SIZE_SP = 10f
+internal const val FLOATING_MONITOR_TEXT_COLOR = 0xFF000000.toInt()
 internal const val FLOATING_MONITOR_TOP_LABEL_BASELINE_FRACTION = 0.19f
 internal const val FLOATING_MONITOR_TOP_VALUE_BASELINE_FRACTION = 0.43f
 internal const val FLOATING_MONITOR_BOTTOM_VALUE_BASELINE_FRACTION = 0.70f
@@ -37,10 +38,16 @@ internal const val FLOATING_MONITOR_BOTTOM_LABEL_BASELINE_FRACTION = 0.88f
 
 internal fun floatingMonitorFillColor(state: FloatingMonitorVisualState): Int =
   when (state) {
-    FloatingMonitorVisualState.Running -> 0xFF207A4D.toInt()
-    FloatingMonitorVisualState.Processing -> 0xFF9A5300.toInt()
+    FloatingMonitorVisualState.Running -> 0xFF55D68B.toInt()
+    FloatingMonitorVisualState.Processing -> 0xFFFFB74D.toInt()
     FloatingMonitorVisualState.Hidden -> error("Hidden monitor has no renderable fill")
   }
+
+internal fun floatingMonitorSecondsSuffixStartX(
+  centerX: Float,
+  numericWidth: Float,
+  gap: Float,
+): Float = centerX + numericWidth / 2f + gap
 
 @SuppressLint("ViewConstructor")
 internal class FloatingMonitorView(
@@ -55,15 +62,21 @@ internal class FloatingMonitorView(
     strokeWidth = 2f * density
   }
   private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-    color = LABEL_COLOR
+    color = FLOATING_MONITOR_TEXT_COLOR
     textAlign = Paint.Align.CENTER
     textSize = 10f * density
     typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
   }
   private val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-    color = Color.WHITE
+    color = FLOATING_MONITOR_TEXT_COLOR
     textAlign = Paint.Align.CENTER
     textSize = FLOATING_MONITOR_VALUE_TEXT_SIZE_SP * density
+    typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+  }
+  private val secondsSuffixPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    color = FLOATING_MONITOR_TEXT_COLOR
+    textAlign = Paint.Align.LEFT
+    textSize = FLOATING_MONITOR_SECONDS_SUFFIX_TEXT_SIZE_SP * density
     typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
   }
 
@@ -85,6 +98,7 @@ internal class FloatingMonitorView(
       append(nextModel.secondaryLabel)
       append(' ')
       append(nextModel.secondaryValue)
+      if (nextModel.visualState == FloatingMonitorVisualState.Processing) append('s')
     }
     invalidate()
   }
@@ -130,13 +144,28 @@ internal class FloatingMonitorView(
     val centerX = width / 2f
     canvas.drawText("req", centerX, height * FLOATING_MONITOR_TOP_LABEL_BASELINE_FRACTION, labelPaint)
     canvas.drawText(current.requestValue, centerX, height * FLOATING_MONITOR_TOP_VALUE_BASELINE_FRACTION, valuePaint)
-    canvas.drawText(current.secondaryValue, centerX, height * FLOATING_MONITOR_BOTTOM_VALUE_BASELINE_FRACTION, valuePaint)
+    val secondaryBaseline = height * FLOATING_MONITOR_BOTTOM_VALUE_BASELINE_FRACTION
+    if (processing) {
+      canvas.drawText(current.secondaryValue, centerX, secondaryBaseline, valuePaint)
+      canvas.drawText(
+        "s",
+        floatingMonitorSecondsSuffixStartX(
+          centerX = centerX,
+          numericWidth = valuePaint.measureText(current.secondaryValue),
+          gap = SECONDS_SUFFIX_GAP_DP * density,
+        ),
+        secondaryBaseline,
+        secondsSuffixPaint,
+      )
+    } else {
+      canvas.drawText(current.secondaryValue, centerX, secondaryBaseline, valuePaint)
+    }
     canvas.drawText(current.secondaryLabel, centerX, height * FLOATING_MONITOR_BOTTOM_LABEL_BASELINE_FRACTION, labelPaint)
   }
 
   private companion object {
     const val TAG = "OlliteRT.FloatView"
-    const val LABEL_COLOR = 0xFFEDF2EF.toInt()
+    const val SECONDS_SUFFIX_GAP_DP = 2f
     const val RUNNING_BORDER = 0xFF55D68B.toInt()
     const val PROCESSING_BORDER = 0xFFFFB74D.toInt()
   }
