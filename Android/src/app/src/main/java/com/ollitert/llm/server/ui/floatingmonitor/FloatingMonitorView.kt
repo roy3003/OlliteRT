@@ -29,6 +29,17 @@ import kotlin.math.roundToInt
 
 internal const val FLOATING_MONITOR_WIDTH_DP = 96f
 internal const val FLOATING_MONITOR_HEIGHT_DP = 108f
+internal const val FLOATING_MONITOR_VALUE_TEXT_SIZE_SP = 18f
+internal const val FLOATING_MONITOR_TOP_LABEL_BASELINE_FRACTION = 0.19f
+internal const val FLOATING_MONITOR_TOP_VALUE_BASELINE_FRACTION = 0.43f
+internal const val FLOATING_MONITOR_BOTTOM_VALUE_BASELINE_FRACTION = 0.70f
+internal const val FLOATING_MONITOR_BOTTOM_LABEL_BASELINE_FRACTION = 0.88f
+
+internal fun floatingMonitorFillColor(state: FloatingMonitorVisualState): Int =
+  when (state) {
+    FloatingMonitorVisualState.Running -> 0xFF207A4D.toInt()
+    FloatingMonitorVisualState.Processing -> 0xFF9A5300.toInt()
+  }
 
 @SuppressLint("ViewConstructor")
 internal class FloatingMonitorView(
@@ -51,7 +62,7 @@ internal class FloatingMonitorView(
   private val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
     color = Color.WHITE
     textAlign = Paint.Align.CENTER
-    textSize = 13f * density
+    textSize = FLOATING_MONITOR_VALUE_TEXT_SIZE_SP * density
     typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
   }
 
@@ -110,24 +121,22 @@ internal class FloatingMonitorView(
     hexPath.close()
 
     val processing = current.visualState == FloatingMonitorVisualState.Processing
-    fillPaint.color = if (processing) PROCESSING_FILL else RUNNING_FILL
+    fillPaint.color = floatingMonitorFillColor(current.visualState)
     borderPaint.color = if (processing) PROCESSING_BORDER else RUNNING_BORDER
     canvas.drawPath(hexPath, fillPaint)
     canvas.drawPath(hexPath, borderPaint)
 
     val centerX = width / 2f
-    canvas.drawText("req", centerX, height * 0.27f, labelPaint)
-    canvas.drawText(current.requestValue, centerX, height * 0.44f, valuePaint)
-    canvas.drawText(current.secondaryValue, centerX, height * 0.64f, valuePaint)
-    canvas.drawText(current.secondaryLabel, centerX, height * 0.80f, labelPaint)
+    canvas.drawText("req", centerX, height * FLOATING_MONITOR_TOP_LABEL_BASELINE_FRACTION, labelPaint)
+    canvas.drawText(current.requestValue, centerX, height * FLOATING_MONITOR_TOP_VALUE_BASELINE_FRACTION, valuePaint)
+    canvas.drawText(current.secondaryValue, centerX, height * FLOATING_MONITOR_BOTTOM_VALUE_BASELINE_FRACTION, valuePaint)
+    canvas.drawText(current.secondaryLabel, centerX, height * FLOATING_MONITOR_BOTTOM_LABEL_BASELINE_FRACTION, labelPaint)
   }
 
   private companion object {
     const val TAG = "OlliteRT.FloatView"
-    const val LABEL_COLOR = 0xFFADB5BD.toInt()
-    const val RUNNING_FILL = 0xFF12271E.toInt()
+    const val LABEL_COLOR = 0xFFEDF2EF.toInt()
     const val RUNNING_BORDER = 0xFF55D68B.toInt()
-    const val PROCESSING_FILL = 0xFF252036.toInt()
     const val PROCESSING_BORDER = 0xFFFFB74D.toInt()
   }
 }
