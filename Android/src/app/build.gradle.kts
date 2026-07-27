@@ -106,6 +106,20 @@ android {
         keyPassword = System.getenv("KEY_PASSWORD")
       }
     }
+
+    // Build-only CI APKs must use a persistent key so each test build can
+    // update the previous com.ollitert.llm.server.dev installation.
+    System.getenv("DEV_KEYSTORE_FILE")
+      ?.takeIf { it.isNotBlank() }
+      ?.let { devKeystoreFile ->
+        create("devCi") {
+          storeFile = file(devKeystoreFile)
+          storePassword = System.getenv("DEV_STORE_PASSWORD")
+          keyAlias = System.getenv("DEV_KEY_ALIAS")
+          keyPassword = System.getenv("DEV_KEY_PASSWORD")
+          storeType = "PKCS12"
+        }
+      }
   }
 
   // Product flavors: dev, beta, stable — all three can be installed side-by-side.
@@ -159,6 +173,9 @@ android {
   }
 
   buildTypes {
+    debug {
+      signingConfigs.findByName("devCi")?.let { signingConfig = it }
+    }
     release {
       isMinifyEnabled = true
       isShrinkResources = true
