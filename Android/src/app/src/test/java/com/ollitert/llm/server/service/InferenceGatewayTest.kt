@@ -30,6 +30,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class InferenceGatewayTest {
 
@@ -319,6 +320,7 @@ class InferenceGatewayTest {
   fun blockingTimeoutBalancesServerMetricsLifecycle() = runBlocking {
     ServerMetrics.resetForTesting()
     try {
+      var recoveryObservedInferring = false
       val result = InferenceGateway.execute(
         prompt = "timeout",
         timeoutSeconds = 1,
@@ -327,12 +329,15 @@ class InferenceGatewayTest {
         resetConversation = { ServerMetrics.onInferenceStarted() },
         runInference = { _, _, _ -> },
         cancelInference = {},
-        recoverAfterTimeout = {},
+        recoverAfterTimeout = {
+          recoveryObservedInferring = ServerMetrics.isInferring.value
+        },
         onInferenceFinished = { ServerMetrics.onInferenceCompleted() },
         elapsedMs = { tick() },
       )
 
       assertEquals("timeout", result.error)
+      assertTrue("timeout recovery is still part of the inference lifecycle", recoveryObservedInferring)
       assertFalse("timeout must clear requests_processing", ServerMetrics.isInferring.value)
       assertEquals("one request must produce one inference sequence", 1L, ServerMetrics.inferenceSequence.value)
     } finally {
@@ -494,6 +499,34 @@ class InferenceGatewayTest {
     } finally {
       threadPool.shutdownNow()
     }
+  }
+
+  @Test
+  fun queuedCallerCancellationDoesNotCancelSharedNativeInference() = runBlocking {
+    val taskQueued = CountDownLatch(1)
+    val queuedExecutor = Executor { taskQueued.countDown() }
+    val nativeCancellationCalled = AtomicBoolean(false)
+
+    val job = launch(Dispatchers.Default) {
+      InferenceGateway.execute(
+        prompt = "queued",
+        timeoutSeconds = 30,
+        executor = queuedExecutor,
+        inferenceLock = lock,
+        resetConversation = {},
+        runInference = { _, _, _ -> },
+        cancelInference = { nativeCancellationCalled.set(true) },
+        elapsedMs = { tick() },
+      )
+    }
+
+    assertTrue("request should be queued", taskQueued.await(5, TimeUnit.SECONDS))
+    job.cancel()
+    job.join()
+    assertFalse(
+      "cancelling a queued caller must not cancel another request using the shared model",
+      nativeCancellationCalled.get(),
+    )
   }
 
   @Test
