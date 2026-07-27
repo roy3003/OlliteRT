@@ -31,6 +31,7 @@ import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
@@ -53,6 +54,19 @@ class InferenceGatewayTest {
     assertFalse(dispatched)
     assertFalse(inferenceRan.get())
     assertFalse("queued cancellation must not touch another request's native inference", nativeCancelled.get())
+  }
+
+  @Test
+  fun cancellationGateDeliversNativeCancellationOnceAcrossReasons() {
+    val nativeCancellations = AtomicInteger(0)
+    val gate = InferenceCancellationGate { nativeCancellations.incrementAndGet() }
+
+    assertTrue(gate.dispatchIfActive {})
+    gate.stopNative("server timeout")
+    gate.cancelCaller()
+    gate.stopNative("error cleanup")
+
+    assertEquals(1, nativeCancellations.get())
   }
 
   @Test
