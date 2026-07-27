@@ -39,6 +39,7 @@ internal fun floatingMonitorFillColor(state: FloatingMonitorVisualState): Int =
   when (state) {
     FloatingMonitorVisualState.Running -> 0xFF207A4D.toInt()
     FloatingMonitorVisualState.Processing -> 0xFF9A5300.toInt()
+    FloatingMonitorVisualState.Hidden -> error("Hidden monitor has no renderable fill")
   }
 
 @SuppressLint("ViewConstructor")

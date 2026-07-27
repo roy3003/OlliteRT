@@ -31,6 +31,11 @@ class FloatingMonitorVisualSpecTest {
     assertEquals(0xFF9A5300.toInt(), floatingMonitorFillColor(FloatingMonitorVisualState.Processing))
   }
 
+  @Test(expected = IllegalStateException::class)
+  fun hiddenStateHasNoRenderableFill() {
+    floatingMonitorFillColor(FloatingMonitorVisualState.Hidden)
+  }
+
   @Test
   fun labelsMoveOutwardAndValuesUseLargerCenterSpace() {
     assertEquals(18f, FLOATING_MONITOR_VALUE_TEXT_SIZE_SP)
