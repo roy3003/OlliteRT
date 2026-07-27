@@ -55,7 +55,7 @@ internal class InferenceCancellationGate(
   private val lock = Any()
   private var callerCancelled = false
   private var nativeDispatched = false
-  private var cancellationDelivered = false
+  private var nativeCancellationDelivered = false
 
   fun isCallerCancelled(): Boolean = synchronized(lock) { callerCancelled }
 
@@ -69,17 +69,23 @@ internal class InferenceCancellationGate(
   fun cancelCaller() {
     val shouldCancelNative = synchronized(lock) {
       callerCancelled = true
-      if (nativeDispatched && !cancellationDelivered) {
-        cancellationDelivered = true
-        true
-      } else {
-        false
-      }
+      claimNativeCancellationLocked()
     }
-    if (shouldCancelNative) stopNative("caller cancellation")
+    if (shouldCancelNative) invokeNativeCancellation("caller cancellation")
   }
 
   fun stopNative(reason: String) {
+    val shouldCancelNative = synchronized(lock) { claimNativeCancellationLocked() }
+    if (shouldCancelNative) invokeNativeCancellation(reason)
+  }
+
+  private fun claimNativeCancellationLocked(): Boolean {
+    if (!nativeDispatched || nativeCancellationDelivered) return false
+    nativeCancellationDelivered = true
+    return true
+  }
+
+  private fun invokeNativeCancellation(reason: String) {
     try {
       cancelInference()
     } catch (t: Throwable) {
