@@ -194,4 +194,17 @@ class IncrementalDecisionTest {
     ServerLlmModelHelper.invalidateCachedTurns(modelName)
     assertFalse(isIncrementalCacheIdentityCurrent(modelName, expected))
   }
+
+  @Test
+  fun incrementalCacheIdentityRejectsEqualButDifferentEntry() {
+    val expected = ServerLlmModelHelper.ConversationCacheEntry(
+      turns = listOf(ServerLlmModelHelper.ConversationTurn("user", "hi")),
+      systemPromptHash = 0,
+      toolsHash = 0,
+    )
+    val equalReplacement = expected.copy()
+    ServerLlmModelHelper.updateCachedTurns(modelName, equalReplacement)
+
+    assertFalse(isIncrementalCacheIdentityCurrent(modelName, expected))
+  }
 }

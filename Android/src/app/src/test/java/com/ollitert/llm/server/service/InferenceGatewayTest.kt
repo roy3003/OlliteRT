@@ -32,6 +32,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.concurrent.thread
 
 class InferenceGatewayTest {
 
@@ -41,7 +42,51 @@ class InferenceGatewayTest {
   private fun tick(): Long { clock += 10; return clock }
 
   @Test
+  fun cancellationGatePreventsDispatchAfterCallerCancellation() {
+    val nativeCancelled = AtomicBoolean(false)
+    val inferenceRan = AtomicBoolean(false)
+    val gate = InferenceCancellationGate { nativeCancelled.set(true) }
+
+    gate.cancelCaller()
+    val dispatched = gate.dispatchIfActive { inferenceRan.set(true) }
+
+    assertFalse(dispatched)
+    assertFalse(inferenceRan.get())
+    assertFalse("queued cancellation must not touch another request's native inference", nativeCancelled.get())
+  }
+
+  @Test
+  fun cancellationGateDoesNotReturnUntilInFlightDispatchCanBeCancelled() {
+    val dispatchEntered = CountDownLatch(1)
+    val releaseDispatch = CountDownLatch(1)
+    val cancelReturned = CountDownLatch(1)
+    val nativeCancelled = AtomicBoolean(false)
+    val gate = InferenceCancellationGate { nativeCancelled.set(true) }
+
+    val dispatchThread = thread {
+      gate.dispatchIfActive {
+        dispatchEntered.countDown()
+        releaseDispatch.await(5, TimeUnit.SECONDS)
+      }
+    }
+    assertTrue(dispatchEntered.await(5, TimeUnit.SECONDS))
+    val cancelThread = thread {
+      gate.cancelCaller()
+      cancelReturned.countDown()
+    }
+
+    assertFalse("caller cancellation must wait for the dispatch boundary", cancelReturned.await(100, TimeUnit.MILLISECONDS))
+    releaseDispatch.countDown()
+    dispatchThread.join(5_000)
+    cancelThread.join(5_000)
+
+    assertTrue(cancelReturned.await(1, TimeUnit.SECONDS))
+    assertTrue("active native inference must receive cancellation", nativeCancelled.get())
+  }
+
+  @Test
   fun successfulInferenceReturnsOutput() = runBlocking {
+    var cacheCommits = 0
     val result = InferenceGateway.execute(
       prompt = "hello",
       timeoutSeconds = 5,
@@ -53,11 +98,13 @@ class InferenceGatewayTest {
         onPartial("", true, null)
       },
       cancelInference = {},
+      onInferenceSucceeded = { cacheCommits += 1 },
       elapsedMs = { tick() },
     )
     assertEquals("world", result.output)
     assertNull(result.error)
     assertTrue(result.ttfbMs >= 0)
+    assertEquals("cache metadata is committed only after successful inference", 1, cacheCommits)
   }
 
   @Test
