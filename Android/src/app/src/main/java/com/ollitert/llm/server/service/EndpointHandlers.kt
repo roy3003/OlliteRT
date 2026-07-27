@@ -258,7 +258,9 @@ class EndpointHandlers(
       toolsHash = tools.hashCode(),
     )
     ServerLlmModelHelper.updateCachedTurns(model.name, nextCacheEntry)
-    val expectedIncrementalCacheEntry = nextCacheEntry.takeIf { incrementalUserText != null }
+    val incrementalCacheValidator: (() -> Boolean)? = if (incrementalUserText != null) {
+      { isIncrementalCacheIdentityCurrent(model.name, nextCacheEntry) }
+    } else null
     return if (req.stream == true) {
       if (useAnthropicStream) {
         inferenceRunner.streamMessagesLlm(
@@ -280,14 +282,14 @@ class EndpointHandlers(
           enableThinkingOverride = enableThinkingOverride,
           requestModelId = requestedId,
           incrementalUserText = incrementalUserText,
-          incrementalCacheEntry = expectedIncrementalCacheEntry,
+          incrementalCacheValidator = incrementalCacheValidator,
         )
       } else {
-        inferenceRunner.streamChatLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, includeUsage = includeUsage, stopSequences = stopSeqs, tools = if (hasTools) tools else null, configSnapshot = sampler, json = json, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText, incrementalCacheEntry = expectedIncrementalCacheEntry)
+        inferenceRunner.streamChatLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, includeUsage = includeUsage, stopSequences = stopSeqs, tools = if (hasTools) tools else null, configSnapshot = sampler, json = json, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText, incrementalCacheValidator = incrementalCacheValidator)
       }
     } else {
       var schemaInjectionToolCalls: List<ToolCall> = emptyList()
-      val (rawText, llmError) = inferenceRunner.runLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, configSnapshot = sampler, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, onNativeToolCalls = if (useSchemaInjection) { calls -> schemaInjectionToolCalls = calls } else null, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText, incrementalCacheEntry = expectedIncrementalCacheEntry)
+      val (rawText, llmError) = inferenceRunner.runLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, configSnapshot = sampler, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, onNativeToolCalls = if (useSchemaInjection) { calls -> schemaInjectionToolCalls = calls } else null, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText, incrementalCacheValidator = incrementalCacheValidator)
       if (rawText == null) return handleBlockingInferenceError(llmError, logId)
       val (text, _) = InferenceRunner.applyStopSequences(rawText, stopSeqs)
 

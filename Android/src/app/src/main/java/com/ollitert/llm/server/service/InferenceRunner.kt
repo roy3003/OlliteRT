@@ -165,7 +165,7 @@ class InferenceRunner(
     // KV-cache reuse: when non-null, dispatch via Message.user(text) on the existing
     // Conversation (skipping resetConversation) so the SDK only prefills the new turn.
     incrementalUserText: String? = null,
-    incrementalCacheEntry: ServerLlmModelHelper.ConversationCacheEntry? = null,
+    incrementalCacheValidator: (() -> Boolean)? = null,
   ): Pair<String?, String?> {
     // Track input tokens (rough estimate: ~4 chars per token)
     ServerMetrics.addTokensIn(estimateTokensLong(prompt))
@@ -219,7 +219,7 @@ class InferenceRunner(
           model.configValues = configSnapshot
         }
         val reuseIncremental = incrementalUserText != null &&
-          isIncrementalCacheIdentityCurrent(model.name, incrementalCacheEntry)
+          incrementalCacheValidator?.invoke() == true
         effectiveIncrementalUserText.set(incrementalUserText.takeIf { reuseIncremental })
         if (reuseIncremental) {
           Log.i(TAG, "INCREMENTAL_REUSE_BLOCKING requestId=$requestId model=${model.name} userTextLen=${incrementalUserText!!.length}")
@@ -1337,11 +1337,11 @@ class InferenceRunner(
     suppressPerModelSystem: Boolean = false,
     enableThinkingOverride: Boolean? = null,
     incrementalUserText: String? = null,
-    incrementalCacheEntry: ServerLlmModelHelper.ConversationCacheEntry? = null,
+    incrementalCacheValidator: (() -> Boolean)? = null,
   ): HttpResponse {
     val now = BridgeUtils.epochSeconds()
     val format = ChatCompletionsFormat(model.name, now, stopSequences, tools, json, includeUsage, hasSchemaInjection = schemaInjectionProviders.isNotEmpty())
-    return streamInference(model, prompt, requestId, endpoint, format, timeoutSeconds, images, audioClips, logId, configSnapshot, prefs, schemaInjectionProviders, schemaInjectionMessages, suppressPerModelSystem, enableThinkingOverride, incrementalUserText, incrementalCacheEntry)
+    return streamInference(model, prompt, requestId, endpoint, format, timeoutSeconds, images, audioClips, logId, configSnapshot, prefs, schemaInjectionProviders, schemaInjectionMessages, suppressPerModelSystem, enableThinkingOverride, incrementalUserText, incrementalCacheValidator)
   }
 
   // ── Streaming inference: /v1/completions ───────────────────────────────
@@ -1385,7 +1385,7 @@ class InferenceRunner(
     enableThinkingOverride: Boolean? = null,
     requestModelId: String,
     incrementalUserText: String? = null,
-    incrementalCacheEntry: ServerLlmModelHelper.ConversationCacheEntry? = null,
+    incrementalCacheValidator: (() -> Boolean)? = null,
   ): HttpResponse {
     val format = AnthropicMessagesFormat(
       modelName = model.name,
@@ -1398,7 +1398,7 @@ class InferenceRunner(
     return streamInference(
       model, prompt, requestId, endpoint, format, timeoutSeconds, images, audioClips,
       logId, configSnapshot, prefs, schemaInjectionProviders, schemaInjectionMessages,
-      suppressPerModelSystem, enableThinkingOverride, incrementalUserText, incrementalCacheEntry,
+      suppressPerModelSystem, enableThinkingOverride, incrementalUserText, incrementalCacheValidator,
     )
   }
 
@@ -1424,7 +1424,7 @@ class InferenceRunner(
     // on the existing Conversation instead of resetting + sending the full rendered
     // [prompt]. Caller (EndpointHandlers) decides eligibility via decideIncrementalReuse.
     incrementalUserText: String? = null,
-    incrementalCacheEntry: ServerLlmModelHelper.ConversationCacheEntry? = null,
+    incrementalCacheValidator: (() -> Boolean)? = null,
   ): HttpResponse {
     val streamStartMs = SystemClock.elapsedRealtime()
     ServerMetrics.addTokensIn(estimateTokensLong(prompt))
@@ -1535,7 +1535,7 @@ class InferenceRunner(
             model.configValues = configSnapshot
           }
           val reuseIncremental = incrementalUserText != null &&
-            isIncrementalCacheIdentityCurrent(model.name, incrementalCacheEntry)
+            incrementalCacheValidator?.invoke() == true
           effectiveIncrementalUserText.set(incrementalUserText.takeIf { reuseIncremental })
           if (reuseIncremental) {
             // Reuse the live Conversation: SDK has the prior history in its internal
