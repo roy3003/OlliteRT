@@ -242,13 +242,8 @@ class EndpointHandlers(
     val incrementalUserText = if (incrementalDecision.kind == IncrementalDecision.Kind.EXTEND) {
       incrementalDecision.newUserText
     } else null
-    // Update the conversation cache to reflect what the SDK now holds. After this
-    // request completes, the SDK's Conversation will contain exactly the turns we
-    // just sent it (history + new user) plus the assistant reply it generates.
-    // For prefix-matching the next request, we record the user turns we've sent
-    // — assistant text isn't tracked because we don't capture streamed responses
-    // back into this layer, and the next match is on user-turn prefixes only
-    // (see decideIncrementalReuse).
+    // Cache metadata represents a Conversation that has actually completed this request.
+    // Do not publish it while queued: cancelled/timeout work must never advance the cache.
     val sentTurns = req.messages
       .filter { it.role != "system" }
       .map { ServerLlmModelHelper.ConversationTurn(it.role, it.content.text) }
@@ -257,10 +252,12 @@ class EndpointHandlers(
       systemPromptHash = if (suppressPerModelSystem) 0 else (req.messages.firstOrNull { it.role == "system" }?.content?.text?.hashCode() ?: 0),
       toolsHash = tools.hashCode(),
     )
-    ServerLlmModelHelper.updateCachedTurns(model.name, nextCacheEntry)
-    val incrementalCacheValidator: (() -> Boolean)? = if (incrementalUserText != null) {
-      { isIncrementalCacheIdentityCurrent(model.name, nextCacheEntry) }
-    } else null
+    val incrementalCacheValidator: (() -> Boolean)? = incrementalDecision.expectedCacheEntry?.let { expected ->
+      { isIncrementalCacheIdentityCurrent(model.name, expected) }
+    }
+    val commitIncrementalCache = {
+      ServerLlmModelHelper.updateCachedTurns(model.name, nextCacheEntry)
+    }
     return if (req.stream == true) {
       if (useAnthropicStream) {
         inferenceRunner.streamMessagesLlm(
@@ -283,13 +280,14 @@ class EndpointHandlers(
           requestModelId = requestedId,
           incrementalUserText = incrementalUserText,
           incrementalCacheValidator = incrementalCacheValidator,
+          onInferenceSucceeded = commitIncrementalCache,
         )
       } else {
-        inferenceRunner.streamChatLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, includeUsage = includeUsage, stopSequences = stopSeqs, tools = if (hasTools) tools else null, configSnapshot = sampler, json = json, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText, incrementalCacheValidator = incrementalCacheValidator)
+        inferenceRunner.streamChatLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, includeUsage = includeUsage, stopSequences = stopSeqs, tools = if (hasTools) tools else null, configSnapshot = sampler, json = json, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText, incrementalCacheValidator = incrementalCacheValidator, onInferenceSucceeded = commitIncrementalCache)
       }
     } else {
       var schemaInjectionToolCalls: List<ToolCall> = emptyList()
-      val (rawText, llmError) = inferenceRunner.runLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, configSnapshot = sampler, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, onNativeToolCalls = if (useSchemaInjection) { calls -> schemaInjectionToolCalls = calls } else null, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText, incrementalCacheValidator = incrementalCacheValidator)
+      val (rawText, llmError) = inferenceRunner.runLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, configSnapshot = sampler, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, onNativeToolCalls = if (useSchemaInjection) { calls -> schemaInjectionToolCalls = calls } else null, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText, incrementalCacheValidator = incrementalCacheValidator, onInferenceSucceeded = commitIncrementalCache)
       if (rawText == null) return handleBlockingInferenceError(llmError, logId)
       val (text, _) = InferenceRunner.applyStopSequences(rawText, stopSeqs)
 
@@ -744,6 +742,7 @@ internal data class IncrementalDecision(
   val kind: Kind,
   val reason: String,
   val newUserText: String? = null,
+  val expectedCacheEntry: ServerLlmModelHelper.ConversationCacheEntry? = null,
 ) {
   enum class Kind { EXTEND, RESET }
 }
@@ -751,7 +750,7 @@ internal data class IncrementalDecision(
 internal fun isIncrementalCacheIdentityCurrent(
   modelName: String,
   expected: ServerLlmModelHelper.ConversationCacheEntry?,
-): Boolean = expected != null && ServerLlmModelHelper.getCachedTurns(modelName) == expected
+): Boolean = expected != null && ServerLlmModelHelper.getCachedTurns(modelName) === expected
 
 internal fun decideIncrementalReuse(
   modelName: String,
@@ -809,5 +808,6 @@ internal fun decideIncrementalReuse(
     kind = IncrementalDecision.Kind.EXTEND,
     reason = "history_matches",
     newUserText = last.content.text,
+    expectedCacheEntry = cached,
   )
 }

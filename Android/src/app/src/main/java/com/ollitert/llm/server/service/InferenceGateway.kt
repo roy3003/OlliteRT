@@ -19,7 +19,6 @@ package com.ollitert.llm.server.service
 import android.util.Log
 import com.ollitert.llm.server.data.BLOCKING_TIMEOUT_SECONDS
 import com.ollitert.llm.server.data.STREAMING_TIMEOUT_SECONDS
-import com.ollitert.llm.server.service.InferenceGateway.executeStreaming
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
@@ -45,6 +44,50 @@ typealias InferenceFn = (
 
 private const val TAG = "OlliteRT.Gateway"
 
+/**
+ * Per-request barrier between caller cancellation and native inference dispatch.
+ * A cancellation that returns has either prevented dispatch or delivered cancellation
+ * to the native request whose dispatch was already in progress.
+ */
+internal class InferenceCancellationGate(
+  private val cancelInference: () -> Unit,
+) {
+  private val lock = Any()
+  private var callerCancelled = false
+  private var nativeDispatched = false
+  private var cancellationDelivered = false
+
+  fun isCallerCancelled(): Boolean = synchronized(lock) { callerCancelled }
+
+  fun dispatchIfActive(dispatch: () -> Unit): Boolean = synchronized(lock) {
+    if (callerCancelled) return@synchronized false
+    nativeDispatched = true
+    dispatch()
+    true
+  }
+
+  fun cancelCaller() {
+    val shouldCancelNative = synchronized(lock) {
+      callerCancelled = true
+      if (nativeDispatched && !cancellationDelivered) {
+        cancellationDelivered = true
+        true
+      } else {
+        false
+      }
+    }
+    if (shouldCancelNative) stopNative("caller cancellation")
+  }
+
+  fun stopNative(reason: String) {
+    try {
+      cancelInference()
+    } catch (t: Throwable) {
+      Log.w(TAG, "cancelInference() failed during $reason", t)
+    }
+  }
+}
+
 object InferenceGateway {
 
   /**
@@ -63,7 +106,7 @@ object InferenceGateway {
    *   via [onError] — this callback preserves the full stack trace for diagnostics.
    */
 
-  fun executeStreaming(
+  internal fun executeStreaming(
     prompt: String,
     timeoutSeconds: Long = STREAMING_TIMEOUT_SECONDS,
     executor: Executor,
@@ -71,9 +114,10 @@ object InferenceGateway {
     resetConversation: () -> Unit,
     runInference: InferenceFn,
     cancelInference: () -> Unit,
-    isCallerCancelled: () -> Boolean = { false },
+    cancellationGate: InferenceCancellationGate = InferenceCancellationGate(cancelInference),
     onInferenceCleanup: () -> Unit = {},
     recoverAfterTimeout: () -> Unit = {},
+    onInferenceSucceeded: () -> Unit = {},
     onToken: (partial: String, done: Boolean, thought: String?) -> Unit,
     onError: (error: String) -> Unit,
     onInferenceFinished: () -> Unit = {},
@@ -85,46 +129,43 @@ object InferenceGateway {
         var errorOccurred = false
         var timedOut = false
         try {
-          if (isCallerCancelled()) throw CancellationException("client_disconnected")
+          if (cancellationGate.isCallerCancelled()) throw CancellationException("client_disconnected")
           resetConversation()
-          if (isCallerCancelled()) throw CancellationException("client_disconnected")
-          runInference(
-            prompt,
-            { partial, done, thought ->
-              onToken(partial, done, thought)
-              if (done) latch.countDown()
-            },
-            { e ->
-              errorOccurred = true
-              onError(e)
-              try { cancelInference() } catch (t: Throwable) {
-                Log.w(TAG, "cancelInference() failed during error callback cleanup", t)
-              }
-              latch.countDown()
-            },
-          )
-          if (isCallerCancelled()) {
-            try { cancelInference() } catch (t: Throwable) {
-              Log.w(TAG, "cancelInference() failed after caller cancellation", t)
-            }
-            throw CancellationException("client_disconnected")
+          if (cancellationGate.isCallerCancelled()) throw CancellationException("client_disconnected")
+          val dispatched = cancellationGate.dispatchIfActive {
+            runInference(
+              prompt,
+              { partial, done, thought ->
+                onToken(partial, done, thought)
+                if (done) latch.countDown()
+              },
+              { e ->
+                errorOccurred = true
+                onError(e)
+                cancellationGate.stopNative("error callback cleanup")
+                latch.countDown()
+              },
+            )
           }
+          if (!dispatched) throw CancellationException("client_disconnected")
           val completed = latch.await(timeoutSeconds, TimeUnit.SECONDS)
           if (!completed && !errorOccurred) {
             timedOut = true
             onError("timeout")
-            cancelInference()
+            cancellationGate.stopNative("streaming timeout")
+          } else if (completed && !errorOccurred && !cancellationGate.isCallerCancelled()) {
+            try { onInferenceSucceeded() } catch (t: Throwable) {
+              Log.w(TAG, "onInferenceSucceeded() failed", t)
+            }
           }
         } catch (t: Throwable) {
-          val expectedCallerCancellation = t is CancellationException && isCallerCancelled()
+          val expectedCallerCancellation = t is CancellationException && cancellationGate.isCallerCancelled()
           // Reclaim memory before reporting the error if OOM
           if (t is OutOfMemoryError) System.gc()
           if (!expectedCallerCancellation) onCaughtThrowable?.invoke(t)
           if (!errorOccurred && !expectedCallerCancellation) {
             onError(t.message ?: "unknown_error")
-            try { cancelInference() } catch (t2: Throwable) {
-              Log.w(TAG, "cancelInference() failed during exception recovery", t2)
-            }
+            cancellationGate.stopNative("exception recovery")
           }
         } finally {
           try { onInferenceCleanup() } catch (t: Throwable) {
@@ -153,7 +194,7 @@ object InferenceGateway {
    * @param onCaughtThrowable Optional callback invoked with the full [Throwable] when an
    *   exception is caught during inference. See [executeStreaming] for details.
    */
-  suspend fun execute(
+  internal suspend fun execute(
     prompt: String,
     timeoutSeconds: Long = BLOCKING_TIMEOUT_SECONDS,
     executor: Executor,
@@ -161,8 +202,10 @@ object InferenceGateway {
     resetConversation: () -> Unit,
     runInference: InferenceFn,
     cancelInference: () -> Unit,
+    cancellationGate: InferenceCancellationGate = InferenceCancellationGate(cancelInference),
     onInferenceCleanup: () -> Unit = {},
     recoverAfterTimeout: () -> Unit = {},
+    onInferenceSucceeded: () -> Unit = {},
     onInferenceFinished: () -> Unit = {},
     elapsedMs: () -> Long,
     onCaughtThrowable: ((Throwable) -> Unit)? = null,
@@ -174,42 +217,17 @@ object InferenceGateway {
     val lifecycleLatch = CountDownLatch(1)
     earlyUnblock?.invoke(lifecycleLatch)
     val error = AtomicReference<String?>(null)
-    val callerStateLock = Any()
-    var callerCancelled = false
-    var nativeDispatched = false
-    var callerCancellationDelivered = false
     val startMs = elapsedMs()
     var firstTokenMs: Long? = null
-
-    fun isCallerCancelled(): Boolean = synchronized(callerStateLock) { callerCancelled }
-
-    fun publishCallerCancellation() {
-      val shouldCancelNative = synchronized(callerStateLock) {
-        callerCancelled = true
-        if (nativeDispatched && !callerCancellationDelivered) {
-          callerCancellationDelivered = true
-          true
-        } else {
-          false
-        }
-      }
-      if (shouldCancelNative) {
-        try { cancelInference() } catch (t: Throwable) {
-          Log.w(TAG, "cancelInference() failed after caller cancellation", t)
-        }
-      }
-    }
 
     executor.execute {
       synchronized(inferenceLock) {
         var timedOut = false
         try {
-          if (isCallerCancelled()) throw CancellationException("client_disconnected")
+          if (cancellationGate.isCallerCancelled()) throw CancellationException("client_disconnected")
           resetConversation()
-          if (isCallerCancelled()) throw CancellationException("client_disconnected")
-          synchronized(callerStateLock) {
-            if (callerCancelled) throw CancellationException("client_disconnected")
-            nativeDispatched = true
+          if (cancellationGate.isCallerCancelled()) throw CancellationException("client_disconnected")
+          val dispatched = cancellationGate.dispatchIfActive {
             runInference(
               prompt,
               { partial, done, thought ->
@@ -227,17 +245,22 @@ object InferenceGateway {
               { e -> error.compareAndSet(null, e); inferenceLatch.countDown() },
             )
           }
+          if (!dispatched) throw CancellationException("client_disconnected")
           val completed = inferenceLatch.await(timeoutSeconds, TimeUnit.SECONDS)
           if (!completed && error.get() == null) {
             timedOut = true
             error.compareAndSet(null, "timeout")
-            cancelInference()
+            cancellationGate.stopNative("blocking timeout")
           } else if (error.get() != null) {
-            cancelInference()
+            cancellationGate.stopNative("blocking inference error")
+          } else if (!cancellationGate.isCallerCancelled()) {
+            try { onInferenceSucceeded() } catch (t: Throwable) {
+              Log.w(TAG, "onInferenceSucceeded() failed", t)
+            }
           }
         } catch (t: Throwable) {
           if (t is OutOfMemoryError) System.gc()
-          if (t !is CancellationException || !isCallerCancelled()) onCaughtThrowable?.invoke(t)
+          if (t !is CancellationException || !cancellationGate.isCallerCancelled()) onCaughtThrowable?.invoke(t)
           error.compareAndSet(null, t.message ?: "unknown_error")
           inferenceLatch.countDown()
         } finally {
@@ -265,16 +288,16 @@ object InferenceGateway {
           val completed = lifecycleLatch.await(timeoutSeconds + 5, TimeUnit.SECONDS)
           if (!completed) {
             error.compareAndSet(null, "timeout")
-            publishCallerCancellation()
+            cancellationGate.cancelCaller()
           }
         }
       }
     } catch (_: InterruptedException) {
       error.compareAndSet(null, "client_disconnected")
-      publishCallerCancellation()
+      cancellationGate.cancelCaller()
     } catch (_: CancellationException) {
       error.compareAndSet(null, "client_disconnected")
-      publishCallerCancellation()
+      cancellationGate.cancelCaller()
     }
     val totalMs = elapsedMs() - startMs
     val thinkingResult = thinkingSb.toString().takeIf { it.isNotEmpty() }

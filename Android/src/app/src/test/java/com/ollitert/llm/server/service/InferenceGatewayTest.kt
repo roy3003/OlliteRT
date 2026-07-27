@@ -354,6 +354,7 @@ class InferenceGatewayTest {
         events += "recover"
         recoveryHeldLock = Thread.holdsLock(lock)
       },
+      onInferenceSucceeded = { events += "succeeded" },
       onInferenceFinished = { events += "finished" },
       elapsedMs = { tick() },
     )
@@ -491,6 +492,7 @@ class InferenceGatewayTest {
       cancelInference = { events += "cancel" },
       onInferenceCleanup = { events += "cleanup" },
       recoverAfterTimeout = { events += "recover" },
+      onInferenceSucceeded = { events += "succeeded" },
       onToken = { _, _, _ -> fail("should not receive tokens") },
       onError = { assertEquals("timeout", it) },
       onInferenceFinished = { events += "finished" },
@@ -503,10 +505,10 @@ class InferenceGatewayTest {
   @Test
   fun queuedStreamingCallerCancellationSkipsNativeInference() {
     val queuedTask = AtomicReference<Runnable?>()
-    val callerCancelled = AtomicBoolean(false)
     val prepared = AtomicBoolean(false)
     val inferenceRan = AtomicBoolean(false)
     val nativeCancellationCalled = AtomicBoolean(false)
+    val cancellationGate = InferenceCancellationGate { nativeCancellationCalled.set(true) }
     val finished = AtomicBoolean(false)
 
     InferenceGateway.executeStreaming(
@@ -517,13 +519,13 @@ class InferenceGatewayTest {
       resetConversation = { prepared.set(true) },
       runInference = { _, _, _ -> inferenceRan.set(true) },
       cancelInference = { nativeCancellationCalled.set(true) },
-      isCallerCancelled = { callerCancelled.get() },
+      cancellationGate = cancellationGate,
       onToken = { _, _, _ -> },
       onError = { fail("queued caller cancellation is not an inference error") },
       onInferenceFinished = { finished.set(true) },
     )
 
-    callerCancelled.set(true)
+    cancellationGate.cancelCaller()
     queuedTask.get()?.run() ?: fail("streaming inference should have been queued")
 
     assertFalse(prepared.get())
@@ -619,9 +621,9 @@ class InferenceGatewayTest {
 
     val result = InferenceGateway.execute(
       prompt = "queued-timeout",
-      // The caller-side wait is timeoutSeconds + 5. A negative test value makes
-      // that wait expire immediately without sleeping in this deterministic unit test.
-      timeoutSeconds = -5,
+      // The caller-side wait is timeoutSeconds + 5. Zero is a valid boundary value;
+      // this test accepts the five-second wait to avoid coupling to an invalid timeout.
+      timeoutSeconds = 0,
       executor = Executor { queuedTask.set(it) },
       inferenceLock = lock,
       resetConversation = { prepared.set(true) },

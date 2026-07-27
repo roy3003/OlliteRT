@@ -166,6 +166,7 @@ class InferenceRunner(
     // Conversation (skipping resetConversation) so the SDK only prefills the new turn.
     incrementalUserText: String? = null,
     incrementalCacheValidator: (() -> Boolean)? = null,
+    onInferenceSucceeded: () -> Unit = {},
   ): Pair<String?, String?> {
     // Track input tokens (rough estimate: ~4 chars per token)
     ServerMetrics.addTokensIn(estimateTokensLong(prompt))
@@ -179,11 +180,12 @@ class InferenceRunner(
     val inferenceActuallyStarted = AtomicBoolean(false)
     val effectiveIncrementalUserText = AtomicReference<String?>(null)
     val lifecycleLatchRef = AtomicReference<java.util.concurrent.CountDownLatch?>(null)
+    val cancellationGate = InferenceCancellationGate { ServerLlmModelHelper.stopResponse(model) }
     // Register cancel callback before any lock acquisition so queued requests are cancellable.
     if (logId != null) {
       RequestLogStore.registerCancellation(logId) {
         userCancelFlag.set(true)
-        if (inferenceActuallyStarted.get()) ServerLlmModelHelper.stopResponse(model)
+        cancellationGate.cancelCaller()
         lifecycleLatchRef.get()?.countDown()
       }
     }
@@ -251,8 +253,9 @@ class InferenceRunner(
         )
       },
       cancelInference = { ServerLlmModelHelper.stopResponse(model) },
+      cancellationGate = cancellationGate,
       onInferenceCleanup = {
-        if (originalConfig != null && model.instance != null) {
+        if (originalConfig != null) {
           model.configValues = originalConfig
         }
       },
@@ -266,6 +269,7 @@ class InferenceRunner(
           initialMessages = schemaInjectionMessages,
         )
       },
+      onInferenceSucceeded = onInferenceSucceeded,
       onInferenceFinished = {
         if (inferenceActuallyStarted.get()) ServerMetrics.onInferenceCompleted()
       },
@@ -1031,10 +1035,8 @@ class InferenceRunner(
     @Volatile var inferenceStarted = false
     @Volatile var inferenceCompleted = false
     // True once ServerMetrics.onInferenceCompleted has been called for this request.
-    // Tracked separately from inferenceCompleted because the metric decrement and the
-    // local "we are done emitting" flag have different lifetimes — the metric pairs
-    // with onInferenceStarted and must fire at most once even if both the gateway
-    // callback and the safety-net finally try to clear it.
+    // This is separate from local stream emission completion because timeout recovery
+    // remains PROCESSING until the gateway's onInferenceFinished callback runs.
     var metricsCompleted = false
     var stopSequenceTriggered = false
     // The actual stop string that matched, set in lock-step with stopSequenceTriggered.
@@ -1338,10 +1340,11 @@ class InferenceRunner(
     enableThinkingOverride: Boolean? = null,
     incrementalUserText: String? = null,
     incrementalCacheValidator: (() -> Boolean)? = null,
+    onInferenceSucceeded: () -> Unit = {},
   ): HttpResponse {
     val now = BridgeUtils.epochSeconds()
     val format = ChatCompletionsFormat(model.name, now, stopSequences, tools, json, includeUsage, hasSchemaInjection = schemaInjectionProviders.isNotEmpty())
-    return streamInference(model, prompt, requestId, endpoint, format, timeoutSeconds, images, audioClips, logId, configSnapshot, prefs, schemaInjectionProviders, schemaInjectionMessages, suppressPerModelSystem, enableThinkingOverride, incrementalUserText, incrementalCacheValidator)
+    return streamInference(model, prompt, requestId, endpoint, format, timeoutSeconds, images, audioClips, logId, configSnapshot, prefs, schemaInjectionProviders, schemaInjectionMessages, suppressPerModelSystem, enableThinkingOverride, incrementalUserText, incrementalCacheValidator, onInferenceSucceeded)
   }
 
   // ── Streaming inference: /v1/completions ───────────────────────────────
@@ -1386,6 +1389,7 @@ class InferenceRunner(
     requestModelId: String,
     incrementalUserText: String? = null,
     incrementalCacheValidator: (() -> Boolean)? = null,
+    onInferenceSucceeded: () -> Unit = {},
   ): HttpResponse {
     val format = AnthropicMessagesFormat(
       modelName = model.name,
@@ -1398,7 +1402,7 @@ class InferenceRunner(
     return streamInference(
       model, prompt, requestId, endpoint, format, timeoutSeconds, images, audioClips,
       logId, configSnapshot, prefs, schemaInjectionProviders, schemaInjectionMessages,
-      suppressPerModelSystem, enableThinkingOverride, incrementalUserText, incrementalCacheValidator,
+      suppressPerModelSystem, enableThinkingOverride, incrementalUserText, incrementalCacheValidator, onInferenceSucceeded,
     )
   }
 
@@ -1425,6 +1429,7 @@ class InferenceRunner(
     // [prompt]. Caller (EndpointHandlers) decides eligibility via decideIncrementalReuse.
     incrementalUserText: String? = null,
     incrementalCacheValidator: (() -> Boolean)? = null,
+    onInferenceSucceeded: () -> Unit = {},
   ): HttpResponse {
     val streamStartMs = SystemClock.elapsedRealtime()
     ServerMetrics.addTokensIn(estimateTokensLong(prompt))
@@ -1439,12 +1444,12 @@ class InferenceRunner(
     // Register cancel callback before any lock so queued requests are immediately cancellable.
     val userCancelFlag = AtomicBoolean(false)
     val channelRef = AtomicReference<Channel<StreamEvent>?>(null)
-    val stateRef = AtomicReference<StreamState?>(null)
+    val cancellationGate = InferenceCancellationGate { ServerLlmModelHelper.stopResponse(model) }
     if (logId != null) {
       RequestLogStore.registerCancellation(logId) {
         userCancelFlag.set(true)
+        cancellationGate.cancelCaller()
         channelRef.get()?.close()
-        stateRef.get()?.let { if (it.inferenceStarted) ServerLlmModelHelper.stopResponse(model) }
       }
     }
 
@@ -1468,8 +1473,8 @@ class InferenceRunner(
     return HttpResponse.Sse(outerTimeoutMs = outerTimeoutMs) { writer ->
       val channel = Channel<StreamEvent>(Channel.UNLIMITED)
       channelRef.set(channel)
+      if (userCancelFlag.get()) channel.close()
       val state = StreamState(model, requestId, endpoint, logId, streamStartMs, keepPartial)
-      stateRef.set(state)
 
       // Captured inside the resetConversation lambda (which runs under inferenceLock) so
       // that concurrent updateConfigValues() writes are visible before we snapshot.
@@ -1570,9 +1575,9 @@ class InferenceRunner(
           )
         },
         cancelInference = { ServerLlmModelHelper.stopResponse(model) },
-        isCallerCancelled = { userCancelFlag.get() },
+        cancellationGate = cancellationGate,
         onInferenceCleanup = {
-          if (originalConfig != null && model.instance != null) {
+          if (originalConfig != null) {
             model.configValues = originalConfig
           }
         },
@@ -1586,6 +1591,7 @@ class InferenceRunner(
             initialMessages = schemaInjectionMessages,
           )
         },
+        onInferenceSucceeded = onInferenceSucceeded,
         onToken = { partial, done, thought ->
           channel.trySend(StreamEvent.Token(partial, done, thought))
         },
@@ -1612,7 +1618,7 @@ class InferenceRunner(
                 "firstTokenMs=${state.firstTokenMs} headerWritten=${state.headerWritten} " +
                 "fullText.len=${state.fullText.length} fullThinking.len=${state.fullThinking.length}")
               userCancelFlag.set(true)
-              if (state.inferenceStarted) ServerLlmModelHelper.stopResponse(model)
+              cancellationGate.cancelCaller()
               state.markCompleted()
               state.logCancellation()
               format.emitCancellation(writer, state.headerWritten)
@@ -1625,6 +1631,8 @@ class InferenceRunner(
                 try {
                   state.handleToken(event, format, writer, prompt, configSnapshot, prefs, streamPreview, channel, capturedNativeToolCalls)
                 } catch (e: Exception) {
+                  userCancelFlag.set(true)
+                  cancellationGate.cancelCaller()
                   if (logId != null) RequestLogStore.unregisterCancellation(logId)
                   state.markCompleted()
                   Log.w(TAG, "Stream write failed for request $requestId", e)
@@ -1655,7 +1663,7 @@ class InferenceRunner(
       } catch (_: kotlinx.coroutines.CancellationException) {
         // Ktor cancelled the coroutine (client disconnect or withTimeout expired) — clean up
         userCancelFlag.set(true)
-        if (state.inferenceStarted) ServerLlmModelHelper.stopResponse(model)
+        cancellationGate.cancelCaller()
         channel.close()
         if (!state.inferenceCompleted) {
           // Finalize the log entry (isPending=false, isCancelled, 499) so it doesn't
