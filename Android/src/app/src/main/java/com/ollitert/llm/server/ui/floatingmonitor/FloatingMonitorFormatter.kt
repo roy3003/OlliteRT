@@ -33,6 +33,6 @@ fun formatFloatingMonitorCount(count: Long): String {
 fun formatProcessingElapsed(elapsedMillis: Long): String {
   val nonNegativeMillis = elapsedMillis.coerceAtLeast(0)
   val totalSeconds = nonNegativeMillis / 1_000
-  if (totalSeconds > MAX_EXACT_ELAPSED_SECONDS) return "9,999+"
-  return formatFloatingMonitorCount(totalSeconds)
+  if (totalSeconds > MAX_EXACT_ELAPSED_SECONDS) return "9999+"
+  return totalSeconds.toString()
 }

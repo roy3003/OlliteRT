@@ -37,9 +37,9 @@ class FloatingMonitorFormatterTest {
     assertEquals("0", formatProcessingElapsed(0))
     assertEquals("59", formatProcessingElapsed(59_999))
     assertEquals("60", formatProcessingElapsed(60_000))
-    assertEquals("3,599", formatProcessingElapsed(3_599_000))
-    assertEquals("9,999", formatProcessingElapsed(9_999_999))
-    assertEquals("9,999+", formatProcessingElapsed(10_000_000))
-    assertEquals("9,999+", formatProcessingElapsed(Long.MAX_VALUE))
+    assertEquals("3599", formatProcessingElapsed(3_599_000))
+    assertEquals("9999", formatProcessingElapsed(9_999_999))
+    assertEquals("9999+", formatProcessingElapsed(10_000_000))
+    assertEquals("9999+", formatProcessingElapsed(Long.MAX_VALUE))
   }
 }
