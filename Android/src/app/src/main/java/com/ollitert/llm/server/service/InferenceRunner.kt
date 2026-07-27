@@ -245,6 +245,16 @@ class InferenceRunner(
         )
       },
       cancelInference = { ServerLlmModelHelper.stopResponse(model) },
+      recoverAfterTimeout = {
+        ServerLlmModelHelper.resetConversation(
+          model,
+          supportImage = supportImage,
+          supportAudio = supportAudio,
+          systemInstruction = if (suppressPerModelSystem) null else buildSystemInstruction(model.prefsKey),
+          tools = schemaInjectionProviders,
+          initialMessages = schemaInjectionMessages,
+        )
+      },
       onInferenceFinished = {
         if (originalConfig != null && model.instance != null) {
           model.configValues = originalConfig
@@ -1547,6 +1557,16 @@ class InferenceRunner(
           )
         },
         cancelInference = { ServerLlmModelHelper.stopResponse(model) },
+        recoverAfterTimeout = {
+          ServerLlmModelHelper.resetConversation(
+            model,
+            supportImage = supportImage,
+            supportAudio = supportAudio,
+            systemInstruction = if (suppressPerModelSystem) null else buildSystemInstruction(model.prefsKey),
+            tools = schemaInjectionProviders,
+            initialMessages = schemaInjectionMessages,
+          )
+        },
         onToken = { partial, done, thought ->
           channel.trySend(StreamEvent.Token(partial, done, thought))
         },

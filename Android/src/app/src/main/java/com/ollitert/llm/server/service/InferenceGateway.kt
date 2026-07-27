@@ -53,6 +53,10 @@ object InferenceGateway {
    * [onToken] is called with (partial, done, thought) for each token and (*, true, *) once when done.
    * [onError] is called instead of [onToken] if inference fails.
    *
+   * @param resetConversation Request preparation invoked exactly once under [inferenceLock].
+   *   Callers may include lifecycle/config setup here, so it must never be reused for recovery.
+   * @param recoverAfterTimeout Pure post-timeout recovery invoked after [onInferenceFinished],
+   *   while [inferenceLock] is still held.
    * @param onCaughtThrowable Optional callback invoked with the full [Throwable] when an
    *   exception is caught during inference. Used by [ServerService] to emit verbose debug
    *   stack traces when debug mode is enabled. The gateway itself only forwards [Throwable.message]
@@ -67,6 +71,7 @@ object InferenceGateway {
     resetConversation: () -> Unit,
     runInference: InferenceFn,
     cancelInference: () -> Unit,
+    recoverAfterTimeout: () -> Unit = {},
     onToken: (partial: String, done: Boolean, thought: String?) -> Unit,
     onError: (error: String) -> Unit,
     onInferenceFinished: () -> Unit = {},
@@ -76,6 +81,7 @@ object InferenceGateway {
       synchronized(inferenceLock) {
         val latch = CountDownLatch(1)
         var errorOccurred = false
+        var timedOut = false
         try {
           resetConversation()
           runInference(
@@ -95,11 +101,9 @@ object InferenceGateway {
           )
           val completed = latch.await(timeoutSeconds, TimeUnit.SECONDS)
           if (!completed && !errorOccurred) {
+            timedOut = true
             onError("timeout")
             cancelInference()
-            // Safe: entire block holds inferenceLock, so no concurrent inference can start
-            // between cancelInference() and resetConversation().
-            resetConversation()
           }
         } catch (t: Throwable) {
           // Reclaim memory before reporting the error if OOM
@@ -114,6 +118,12 @@ object InferenceGateway {
         } finally {
           try { onInferenceFinished() } catch (t: Throwable) {
             Log.w(TAG, "onInferenceFinished() failed", t)
+          } finally {
+            if (timedOut) {
+              try { recoverAfterTimeout() } catch (t: Throwable) {
+                Log.w(TAG, "recoverAfterTimeout() failed", t)
+              }
+            }
           }
         }
       }
@@ -121,6 +131,10 @@ object InferenceGateway {
   }
 
   /**
+   * @param resetConversation Request preparation invoked exactly once under [inferenceLock].
+   *   Callers may include lifecycle/config setup here, so it must never be reused for recovery.
+   * @param recoverAfterTimeout Pure post-timeout recovery invoked after [onInferenceFinished],
+   *   while [inferenceLock] is still held.
    * @param onCaughtThrowable Optional callback invoked with the full [Throwable] when an
    *   exception is caught during inference. See [executeStreaming] for details.
    */
@@ -132,6 +146,7 @@ object InferenceGateway {
     resetConversation: () -> Unit,
     runInference: InferenceFn,
     cancelInference: () -> Unit,
+    recoverAfterTimeout: () -> Unit = {},
     onInferenceFinished: () -> Unit = {},
     elapsedMs: () -> Long,
     onCaughtThrowable: ((Throwable) -> Unit)? = null,
@@ -148,6 +163,7 @@ object InferenceGateway {
 
     executor.execute {
       synchronized(inferenceLock) {
+        var timedOut = false
         try {
           resetConversation()
           runInference(
@@ -168,11 +184,9 @@ object InferenceGateway {
           )
           val completed = inferenceLatch.await(timeoutSeconds, TimeUnit.SECONDS)
           if (!completed && error.get() == null) {
+            timedOut = true
             error.compareAndSet(null, "timeout")
             cancelInference()
-            // Safe: entire block holds inferenceLock, so no concurrent inference can start
-            // between cancelInference() and resetConversation().
-            resetConversation()
           } else if (error.get() != null) {
             cancelInference()
           }
@@ -184,6 +198,12 @@ object InferenceGateway {
         } finally {
           try { onInferenceFinished() } catch (t: Throwable) {
             Log.w(TAG, "onInferenceFinished() failed", t)
+          } finally {
+            if (timedOut) {
+              try { recoverAfterTimeout() } catch (t: Throwable) {
+                Log.w(TAG, "recoverAfterTimeout() failed", t)
+              }
+            }
           }
           lifecycleLatch.countDown()
         }

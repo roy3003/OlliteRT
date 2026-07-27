@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -289,19 +290,54 @@ class InferenceGatewayTest {
   @Test
   fun blockingTimeoutPreparesInferenceOnlyOnce() = runBlocking {
     var prepareCalls = 0
+    var recoveryHeldLock = false
+    val events = mutableListOf<String>()
     val result = InferenceGateway.execute(
       prompt = "timeout",
       timeoutSeconds = 1,
       executor = directExecutor,
       inferenceLock = lock,
-      resetConversation = { prepareCalls += 1 },
+      resetConversation = { prepareCalls += 1; events += "prepare" },
       runInference = { _, _, _ -> },
-      cancelInference = {},
+      cancelInference = { events += "cancel" },
+      recoverAfterTimeout = {
+        events += "recover"
+        recoveryHeldLock = Thread.holdsLock(lock)
+      },
+      onInferenceFinished = { events += "finished" },
       elapsedMs = { tick() },
     )
 
     assertEquals("timeout", result.error)
     assertEquals("request preparation must not run again during timeout recovery", 1, prepareCalls)
+    assertEquals(listOf("prepare", "cancel", "finished", "recover"), events)
+    assertTrue("timeout recovery must run while holding inferenceLock", recoveryHeldLock)
+  }
+
+  // Uses 1s real-time wait — CountDownLatch.await() can't use virtual time.
+  @Test
+  fun blockingTimeoutBalancesServerMetricsLifecycle() = runBlocking {
+    ServerMetrics.resetForTesting()
+    try {
+      val result = InferenceGateway.execute(
+        prompt = "timeout",
+        timeoutSeconds = 1,
+        executor = directExecutor,
+        inferenceLock = lock,
+        resetConversation = { ServerMetrics.onInferenceStarted() },
+        runInference = { _, _, _ -> },
+        cancelInference = {},
+        recoverAfterTimeout = {},
+        onInferenceFinished = { ServerMetrics.onInferenceCompleted() },
+        elapsedMs = { tick() },
+      )
+
+      assertEquals("timeout", result.error)
+      assertFalse("timeout must clear requests_processing", ServerMetrics.isInferring.value)
+      assertEquals("one request must produce one inference sequence", 1L, ServerMetrics.inferenceSequence.value)
+    } finally {
+      ServerMetrics.resetForTesting()
+    }
   }
 
   // ── executeStreaming tests ────────────────────────────────────────────────
@@ -384,6 +420,29 @@ class InferenceGatewayTest {
     )
     assertNotNull(errorMsg)
     assertTrue(errorMsg.orEmpty().contains("crash"))
+  }
+
+  // Uses 1s real-time wait — CountDownLatch.await() can't use virtual time.
+  @Test
+  fun streamingTimeoutPreparesOnceAndRecoversAfterFinished() {
+    var prepareCalls = 0
+    val events = mutableListOf<String>()
+    InferenceGateway.executeStreaming(
+      prompt = "timeout",
+      timeoutSeconds = 1,
+      executor = directExecutor,
+      inferenceLock = lock,
+      resetConversation = { prepareCalls += 1; events += "prepare" },
+      runInference = { _, _, _ -> },
+      cancelInference = { events += "cancel" },
+      recoverAfterTimeout = { events += "recover" },
+      onToken = { _, _, _ -> fail("should not receive tokens") },
+      onError = { assertEquals("timeout", it) },
+      onInferenceFinished = { events += "finished" },
+    )
+
+    assertEquals(1, prepareCalls)
+    assertEquals(listOf("prepare", "cancel", "finished", "recover"), events)
   }
 
   @Test

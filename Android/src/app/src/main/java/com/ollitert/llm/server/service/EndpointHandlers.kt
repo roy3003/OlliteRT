@@ -92,9 +92,7 @@ class EndpointHandlers(
     // Store context utilization data in the log entry for per-request display
     recordContextUtilization(logId, prompt, maxContextGen)
     logEvent("request_start id=$requestId endpoint=/generate bodyLength=${body.length} promptChars=${prompt.length} model=default")
-    ServerMetrics.onInferenceStarted()
     val (text, llmError) = inferenceRunner.runLlm(model, prompt, requestId, "/generate", logId = logId, prefs = prefs)
-    ServerMetrics.onInferenceCompleted()
     if (text == null) return handleBlockingInferenceError(llmError, logId)
     val promptTokens = estimateTokens(prompt)
     val completionTokens = estimateTokens(text)
@@ -288,10 +286,8 @@ class EndpointHandlers(
         inferenceRunner.streamChatLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, includeUsage = includeUsage, stopSequences = stopSeqs, tools = if (hasTools) tools else null, configSnapshot = sampler, json = json, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText)
       }
     } else {
-      ServerMetrics.onInferenceStarted()
       var schemaInjectionToolCalls: List<ToolCall> = emptyList()
       val (rawText, llmError) = inferenceRunner.runLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, configSnapshot = sampler, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, onNativeToolCalls = if (useSchemaInjection) { calls -> schemaInjectionToolCalls = calls } else null, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText)
-      ServerMetrics.onInferenceCompleted()
       if (rawText == null) return handleBlockingInferenceError(llmError, logId)
       val (text, _) = InferenceRunner.applyStopSequences(rawText, stopSeqs)
 
@@ -393,9 +389,7 @@ class EndpointHandlers(
     return if (req.stream == true) {
       inferenceRunner.streamCompletions(model, prompt, requestId, "/v1/completions", timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), logId = logId, includeUsage = includeUsage, stopSequences = stopSeqs, configSnapshot = sampler, json = json, prefs = prefs)
     } else {
-      ServerMetrics.onInferenceStarted()
       val (rawText, llmError) = inferenceRunner.runLlm(model, prompt, requestId, "/v1/completions", timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), logId = logId, configSnapshot = sampler, prefs = prefs)
-      ServerMetrics.onInferenceCompleted()
       if (rawText == null) return handleBlockingInferenceError(llmError, logId)
 
       val (text, _) = InferenceRunner.applyStopSequences(rawText, stopSeqs)
@@ -473,10 +467,8 @@ class EndpointHandlers(
     return if (req.stream == true) {
       inferenceRunner.streamLlm(model, prompt, requestId, "/v1/responses", timeoutSeconds = ServerPrefs.getTimeoutResponses(context), logId = logId, configSnapshot = sampler, json = json, tools = if (hasTools) tools else null, prefs = prefs, schemaInjectionProviders = schemaInjectionProvidersResp)
     } else {
-      ServerMetrics.onInferenceStarted()
       var schemaInjectionToolCallsResp: List<ToolCall> = emptyList()
       val (text, llmError) = inferenceRunner.runLlm(model, prompt, requestId, "/v1/responses", timeoutSeconds = ServerPrefs.getTimeoutResponses(context), logId = logId, configSnapshot = sampler, prefs = prefs, schemaInjectionProviders = schemaInjectionProvidersResp, onNativeToolCalls = if (useSchemaInjectionResp) { calls -> schemaInjectionToolCallsResp = calls } else null)
-      ServerMetrics.onInferenceCompleted()
       if (text == null) return handleBlockingInferenceError(llmError, logId)
 
       // Check if the model output contains tool call(s)
