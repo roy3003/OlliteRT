@@ -47,6 +47,21 @@ private const val TAG = "OlliteRT.Gateway"
 
 object InferenceGateway {
 
+  internal interface NativeOperation {
+    fun prepare()
+
+    fun dispatch(
+      onPartial: (partial: String, done: Boolean, thought: String?) -> Unit,
+      onError: (message: String) -> Unit,
+    )
+
+    fun cancel()
+
+    fun recover()
+
+    fun finish()
+  }
+
   private enum class ExecutionPhase {
     QUEUED,
     PREPARING,
@@ -102,6 +117,12 @@ object InferenceGateway {
           ExecutionPhase.CANCELLED_BEFORE_DISPATCH -> Unit
         }
       }
+    }
+
+    fun beginRecovery(): Boolean = synchronized(stateLock) {
+      if (phase != ExecutionPhase.CANCELLING) return@synchronized false
+      phase = ExecutionPhase.SETTLING
+      true
     }
 
     fun finish() {
@@ -200,12 +221,43 @@ object InferenceGateway {
     elapsedMs: () -> Long,
     onCaughtThrowable: ((Throwable) -> Unit)? = null,
     earlyUnblock: ((CountDownLatch) -> Unit)? = null,
+  ): InferenceResult = execute(
+    timeoutSeconds = timeoutSeconds,
+    executor = executor,
+    inferenceLock = inferenceLock,
+    operation = object : NativeOperation {
+      override fun prepare() = resetConversation()
+
+      override fun dispatch(
+        onPartial: (partial: String, done: Boolean, thought: String?) -> Unit,
+        onError: (message: String) -> Unit,
+      ) = runInference(prompt, onPartial, onError)
+
+      override fun cancel() = cancelInference()
+
+      override fun recover() = Unit
+
+      override fun finish() = onInferenceFinished()
+    },
+    elapsedMs = elapsedMs,
+    onCaughtThrowable = onCaughtThrowable,
+    earlyUnblock = earlyUnblock,
+  )
+
+  internal suspend fun execute(
+    timeoutSeconds: Long = BLOCKING_TIMEOUT_SECONDS,
+    executor: Executor,
+    inferenceLock: Any,
+    operation: NativeOperation,
+    elapsedMs: () -> Long,
+    onCaughtThrowable: ((Throwable) -> Unit)? = null,
+    earlyUnblock: ((CountDownLatch) -> Unit)? = null,
   ): InferenceResult {
     val sb = StringBuilder()
     val thinkingSb = StringBuilder()
     val inferenceLatch = CountDownLatch(1)
     val lifecycleLatch = CountDownLatch(1)
-    val execution = InferenceExecution(cancelInference)
+    val execution = InferenceExecution(operation::cancel)
     earlyUnblock?.invoke(lifecycleLatch)
     val error = AtomicReference<String?>(null)
     val startMs = elapsedMs()
@@ -215,10 +267,9 @@ object InferenceGateway {
       synchronized(inferenceLock) {
         try {
           if (!execution.beginPreparation()) return@synchronized
-          resetConversation()
+          operation.prepare()
           val dispatched = execution.dispatch {
-            runInference(
-              prompt,
+            operation.dispatch(
               { partial, done, thought ->
                 if (partial.isNotEmpty()) {
                   if (firstTokenMs == null) {
@@ -239,11 +290,10 @@ object InferenceGateway {
           if (!completed && error.get() == null) {
             error.compareAndSet(null, "timeout")
             execution.cancel()
-            // Safe: entire block holds inferenceLock, so no concurrent inference can start
-            // between cancelInference() and resetConversation().
-            resetConversation()
+            if (execution.beginRecovery()) operation.recover()
           } else if (error.get() != null) {
             execution.cancel()
+            if (execution.beginRecovery()) operation.recover()
           }
         } catch (t: Throwable) {
           if (t is OutOfMemoryError) System.gc()
@@ -251,8 +301,8 @@ object InferenceGateway {
           error.compareAndSet(null, t.message ?: "unknown_error")
           inferenceLatch.countDown()
         } finally {
-          try { onInferenceFinished() } catch (t: Throwable) {
-            Log.w(TAG, "onInferenceFinished() failed", t)
+          try { operation.finish() } catch (t: Throwable) {
+            Log.w(TAG, "NativeOperation.finish() failed", t)
           }
           execution.finish()
           lifecycleLatch.countDown()

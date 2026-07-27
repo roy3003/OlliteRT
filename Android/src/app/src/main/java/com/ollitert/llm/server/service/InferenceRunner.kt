@@ -199,57 +199,74 @@ class InferenceRunner(
     val capturedNativeToolCalls = AtomicReference<List<com.google.ai.edge.litertlm.ToolCall>?>(null)
 
     val result = InferenceGateway.execute(
-      prompt = prompt,
       timeoutSeconds = timeoutSeconds,
       executor = executor,
       inferenceLock = inferenceLock,
-      resetConversation = {
-        // Skip inference entirely if cancelled while queued.
-        if (userCancelFlag.get()) throw java.util.concurrent.CancellationException("cancelled_while_queued")
-        val initErr = reinitIfNeeded(model, supportImage, supportAudio)
-        if (initErr != null) throw RuntimeException("model_init_failed: $initErr")
-        inferenceActuallyStarted.set(true)
-        ServerMetrics.onInferenceStarted()
-        if (logId != null) RequestLogStore.update(logId) { it.copy(isGenerating = true) }
-        if (configSnapshot != null) {
-          originalConfig = model.configValues
-          model.configValues = configSnapshot
+      operation = object : InferenceGateway.NativeOperation {
+        override fun prepare() {
+          // Skip inference entirely if cancelled while queued.
+          if (userCancelFlag.get()) throw java.util.concurrent.CancellationException("cancelled_while_queued")
+          val initErr = reinitIfNeeded(model, supportImage, supportAudio)
+          if (initErr != null) throw RuntimeException("model_init_failed: $initErr")
+          inferenceActuallyStarted.set(true)
+          ServerMetrics.onInferenceStarted()
+          if (logId != null) RequestLogStore.update(logId) { it.copy(isGenerating = true) }
+          if (configSnapshot != null) {
+            originalConfig = model.configValues
+            model.configValues = configSnapshot
+          }
+          if (incrementalUserText != null) {
+            Log.i(TAG, "INCREMENTAL_REUSE_BLOCKING requestId=$requestId model=${model.name} userTextLen=${incrementalUserText.length}")
+          } else {
+            resetConversationForRequest(
+              model = model,
+              supportImage = supportImage,
+              supportAudio = supportAudio,
+              suppressPerModelSystem = suppressPerModelSystem,
+              schemaInjectionProviders = schemaInjectionProviders,
+              schemaInjectionMessages = schemaInjectionMessages,
+            )
+          }
         }
-        if (incrementalUserText != null) {
-          Log.i(TAG, "INCREMENTAL_REUSE_BLOCKING requestId=$requestId model=${model.name} userTextLen=${incrementalUserText.length}")
-        } else {
-          ServerLlmModelHelper.resetConversation(
-            model,
-            supportImage = supportImage,
-            supportAudio = supportAudio,
-            systemInstruction = if (suppressPerModelSystem) null else buildSystemInstruction(model.prefsKey),
-            tools = schemaInjectionProviders,
-            initialMessages = schemaInjectionMessages,
+
+        override fun dispatch(
+          onPartial: (partial: String, done: Boolean, thought: String?) -> Unit,
+          onError: (message: String) -> Unit,
+        ) {
+          ServerLlmModelHelper.runInference(
+            model = model,
+            input = prompt,
+            resultListener = { partial, done, thought -> onPartial(partial, done, thought) },
+            cleanUpListener = {},
+            onError = onError,
+            images = images,
+            audioClips = audioClips,
+            extraContext = extraContext,
+            incrementalUserText = incrementalUserText,
+            onNativeToolCalls = if (schemaInjectionProviders.isNotEmpty()) { calls ->
+              capturedNativeToolCalls.set(calls)
+            } else null,
           )
         }
-      },
-      runInference = { input, onPartial, onError ->
-        ServerLlmModelHelper.runInference(
-          model = model,
-          input = input,
-          resultListener = { partial, done, thought -> onPartial(partial, done, thought) },
-          cleanUpListener = {},
-          onError = onError,
-          images = images,
-          audioClips = audioClips,
-          extraContext = extraContext,
-          incrementalUserText = incrementalUserText,
-          onNativeToolCalls = if (schemaInjectionProviders.isNotEmpty()) { calls ->
-            capturedNativeToolCalls.set(calls)
-          } else null,
-        )
-      },
-      cancelInference = { ServerLlmModelHelper.stopResponse(model) },
-      onInferenceFinished = {
-        if (originalConfig != null && model.instance != null) {
-          model.configValues = originalConfig
+
+        override fun cancel() = ServerLlmModelHelper.stopResponse(model)
+
+        override fun recover() {
+          restoreRequestConfig(model, originalConfig)
+          resetConversationForRequest(
+            model = model,
+            supportImage = supportImage,
+            supportAudio = supportAudio,
+            suppressPerModelSystem = suppressPerModelSystem,
+            schemaInjectionProviders = schemaInjectionProviders,
+            schemaInjectionMessages = schemaInjectionMessages,
+          )
         }
-        if (inferenceActuallyStarted.get()) ServerMetrics.onInferenceCompleted()
+
+        override fun finish() {
+          restoreRequestConfig(model, originalConfig)
+          if (inferenceActuallyStarted.get()) ServerMetrics.onInferenceCompleted()
+        }
       },
       elapsedMs = { SystemClock.elapsedRealtime() },
       onCaughtThrowable = { t -> emitDebugStackTrace(t, "execute", model.name) },
@@ -296,6 +313,28 @@ class InferenceRunner(
       }
       output to null
     }
+  }
+
+  private fun resetConversationForRequest(
+    model: Model,
+    supportImage: Boolean,
+    supportAudio: Boolean,
+    suppressPerModelSystem: Boolean,
+    schemaInjectionProviders: List<com.google.ai.edge.litertlm.ToolProvider>,
+    schemaInjectionMessages: List<com.google.ai.edge.litertlm.Message>,
+  ) {
+    ServerLlmModelHelper.resetConversation(
+      model,
+      supportImage = supportImage,
+      supportAudio = supportAudio,
+      systemInstruction = if (suppressPerModelSystem) null else buildSystemInstruction(model.prefsKey),
+      tools = schemaInjectionProviders,
+      initialMessages = schemaInjectionMessages,
+    )
+  }
+
+  private fun restoreRequestConfig(model: Model, originalConfig: Map<String, Any>?) {
+    if (originalConfig != null) model.configValues = originalConfig
   }
 
   // ── Streaming format abstraction ──────────────────────────────────────────
