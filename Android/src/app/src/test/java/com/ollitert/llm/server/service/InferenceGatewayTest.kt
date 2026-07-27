@@ -565,6 +565,33 @@ class InferenceGatewayTest {
   }
 
   @Test
+  fun queuedLifecycleTimeoutInvalidatesRequestBeforeExecutorRuns() = runBlocking {
+    val queuedTask = AtomicReference<Runnable?>()
+    val prepared = AtomicBoolean(false)
+    val inferenceRan = AtomicBoolean(false)
+    val nativeCancellationCalled = AtomicBoolean(false)
+
+    val result = InferenceGateway.execute(
+      prompt = "queued-timeout",
+      // The caller-side wait is timeoutSeconds + 5. A negative test value makes
+      // that wait expire immediately without sleeping in this deterministic unit test.
+      timeoutSeconds = -5,
+      executor = Executor { queuedTask.set(it) },
+      inferenceLock = lock,
+      resetConversation = { prepared.set(true) },
+      runInference = { _, _, _ -> inferenceRan.set(true) },
+      cancelInference = { nativeCancellationCalled.set(true) },
+      elapsedMs = { tick() },
+    )
+
+    assertEquals("timeout", result.error)
+    queuedTask.get()?.run() ?: fail("blocking inference should have been queued")
+    assertFalse(prepared.get())
+    assertFalse(inferenceRan.get())
+    assertFalse(nativeCancellationCalled.get())
+  }
+
+  @Test
   fun concurrentErrorAndTimeoutFirstErrorWins() = runBlocking {
     val threadPool = Executors.newSingleThreadExecutor()
     try {

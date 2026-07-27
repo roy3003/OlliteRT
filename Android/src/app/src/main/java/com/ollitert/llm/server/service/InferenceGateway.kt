@@ -251,7 +251,9 @@ object InferenceGateway {
         runInterruptible {
           val completed = lifecycleLatch.await(timeoutSeconds + 5, TimeUnit.SECONDS)
           if (!completed) {
+            callerCancelled.set(true)
             error.compareAndSet(null, "timeout")
+            cancelForCallerIfStarted()
           }
         }
       }
