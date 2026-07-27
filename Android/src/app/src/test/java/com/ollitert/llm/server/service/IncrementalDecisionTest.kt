@@ -19,6 +19,8 @@ package com.ollitert.llm.server.service
 import com.ollitert.llm.server.runtime.ServerLlmModelHelper
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IncrementalDecisionTest {
@@ -177,5 +179,19 @@ class IncrementalDecisionTest {
       hasTools = false, hasImages = false, hasAudio = false,
     )
     assertEquals("last_not_user_text", decision.reason)
+  }
+
+  @Test
+  fun incrementalCacheIdentityBecomesInvalidAfterRecoveryReset() {
+    val expected = ServerLlmModelHelper.ConversationCacheEntry(
+      turns = listOf(ServerLlmModelHelper.ConversationTurn("user", "hi")),
+      systemPromptHash = 0,
+      toolsHash = 0,
+    )
+    ServerLlmModelHelper.updateCachedTurns(modelName, expected)
+    assertTrue(isIncrementalCacheIdentityCurrent(modelName, expected))
+
+    ServerLlmModelHelper.invalidateCachedTurns(modelName)
+    assertFalse(isIncrementalCacheIdentityCurrent(modelName, expected))
   }
 }

@@ -31,6 +31,7 @@ import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 class InferenceGatewayTest {
 
@@ -301,6 +302,7 @@ class InferenceGatewayTest {
       resetConversation = { prepareCalls += 1; events += "prepare" },
       runInference = { _, _, _ -> },
       cancelInference = { events += "cancel" },
+      onInferenceCleanup = { events += "cleanup" },
       recoverAfterTimeout = {
         events += "recover"
         recoveryHeldLock = Thread.holdsLock(lock)
@@ -311,7 +313,7 @@ class InferenceGatewayTest {
 
     assertEquals("timeout", result.error)
     assertEquals("request preparation must not run again during timeout recovery", 1, prepareCalls)
-    assertEquals(listOf("prepare", "cancel", "finished", "recover"), events)
+    assertEquals(listOf("prepare", "cancel", "cleanup", "recover", "finished"), events)
     assertTrue("timeout recovery must run while holding inferenceLock", recoveryHeldLock)
   }
 
@@ -429,7 +431,7 @@ class InferenceGatewayTest {
 
   // Uses 1s real-time wait — CountDownLatch.await() can't use virtual time.
   @Test
-  fun streamingTimeoutPreparesOnceAndRecoversAfterFinished() {
+  fun streamingTimeoutPreparesOnceAndRecoversBeforeFinished() {
     var prepareCalls = 0
     val events = mutableListOf<String>()
     InferenceGateway.executeStreaming(
@@ -440,6 +442,7 @@ class InferenceGatewayTest {
       resetConversation = { prepareCalls += 1; events += "prepare" },
       runInference = { _, _, _ -> },
       cancelInference = { events += "cancel" },
+      onInferenceCleanup = { events += "cleanup" },
       recoverAfterTimeout = { events += "recover" },
       onToken = { _, _, _ -> fail("should not receive tokens") },
       onError = { assertEquals("timeout", it) },
@@ -447,7 +450,39 @@ class InferenceGatewayTest {
     )
 
     assertEquals(1, prepareCalls)
-    assertEquals(listOf("prepare", "cancel", "finished", "recover"), events)
+    assertEquals(listOf("prepare", "cancel", "cleanup", "recover", "finished"), events)
+  }
+
+  @Test
+  fun queuedStreamingCallerCancellationSkipsNativeInference() {
+    val queuedTask = AtomicReference<Runnable?>()
+    val callerCancelled = AtomicBoolean(false)
+    val prepared = AtomicBoolean(false)
+    val inferenceRan = AtomicBoolean(false)
+    val nativeCancellationCalled = AtomicBoolean(false)
+    val finished = AtomicBoolean(false)
+
+    InferenceGateway.executeStreaming(
+      prompt = "queued",
+      timeoutSeconds = 30,
+      executor = Executor { queuedTask.set(it) },
+      inferenceLock = lock,
+      resetConversation = { prepared.set(true) },
+      runInference = { _, _, _ -> inferenceRan.set(true) },
+      cancelInference = { nativeCancellationCalled.set(true) },
+      isCallerCancelled = { callerCancelled.get() },
+      onToken = { _, _, _ -> },
+      onError = { fail("queued caller cancellation is not an inference error") },
+      onInferenceFinished = { finished.set(true) },
+    )
+
+    callerCancelled.set(true)
+    queuedTask.get()?.run() ?: fail("streaming inference should have been queued")
+
+    assertFalse(prepared.get())
+    assertFalse(inferenceRan.get())
+    assertFalse(nativeCancellationCalled.get())
+    assertTrue(finished.get())
   }
 
   @Test

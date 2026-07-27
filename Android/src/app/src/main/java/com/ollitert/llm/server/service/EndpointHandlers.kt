@@ -252,14 +252,13 @@ class EndpointHandlers(
     val sentTurns = req.messages
       .filter { it.role != "system" }
       .map { ServerLlmModelHelper.ConversationTurn(it.role, it.content.text) }
-    ServerLlmModelHelper.updateCachedTurns(
-      model.name,
-      ServerLlmModelHelper.ConversationCacheEntry(
-        turns = sentTurns,
-        systemPromptHash = if (suppressPerModelSystem) 0 else (req.messages.firstOrNull { it.role == "system" }?.content?.text?.hashCode() ?: 0),
-        toolsHash = tools.hashCode(),
-      ),
+    val nextCacheEntry = ServerLlmModelHelper.ConversationCacheEntry(
+      turns = sentTurns,
+      systemPromptHash = if (suppressPerModelSystem) 0 else (req.messages.firstOrNull { it.role == "system" }?.content?.text?.hashCode() ?: 0),
+      toolsHash = tools.hashCode(),
     )
+    ServerLlmModelHelper.updateCachedTurns(model.name, nextCacheEntry)
+    val expectedIncrementalCacheEntry = nextCacheEntry.takeIf { incrementalUserText != null }
     return if (req.stream == true) {
       if (useAnthropicStream) {
         inferenceRunner.streamMessagesLlm(
@@ -281,13 +280,14 @@ class EndpointHandlers(
           enableThinkingOverride = enableThinkingOverride,
           requestModelId = requestedId,
           incrementalUserText = incrementalUserText,
+          incrementalCacheEntry = expectedIncrementalCacheEntry,
         )
       } else {
-        inferenceRunner.streamChatLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, includeUsage = includeUsage, stopSequences = stopSeqs, tools = if (hasTools) tools else null, configSnapshot = sampler, json = json, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText)
+        inferenceRunner.streamChatLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, includeUsage = includeUsage, stopSequences = stopSeqs, tools = if (hasTools) tools else null, configSnapshot = sampler, json = json, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText, incrementalCacheEntry = expectedIncrementalCacheEntry)
       }
     } else {
       var schemaInjectionToolCalls: List<ToolCall> = emptyList()
-      val (rawText, llmError) = inferenceRunner.runLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, configSnapshot = sampler, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, onNativeToolCalls = if (useSchemaInjection) { calls -> schemaInjectionToolCalls = calls } else null, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText)
+      val (rawText, llmError) = inferenceRunner.runLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, configSnapshot = sampler, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, onNativeToolCalls = if (useSchemaInjection) { calls -> schemaInjectionToolCalls = calls } else null, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText, incrementalCacheEntry = expectedIncrementalCacheEntry)
       if (rawText == null) return handleBlockingInferenceError(llmError, logId)
       val (text, _) = InferenceRunner.applyStopSequences(rawText, stopSeqs)
 
@@ -745,6 +745,11 @@ internal data class IncrementalDecision(
 ) {
   enum class Kind { EXTEND, RESET }
 }
+
+internal fun isIncrementalCacheIdentityCurrent(
+  modelName: String,
+  expected: ServerLlmModelHelper.ConversationCacheEntry?,
+): Boolean = expected != null && ServerLlmModelHelper.getCachedTurns(modelName) == expected
 
 internal fun decideIncrementalReuse(
   modelName: String,

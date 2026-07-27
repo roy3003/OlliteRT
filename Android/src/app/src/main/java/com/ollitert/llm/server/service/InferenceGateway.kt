@@ -27,6 +27,7 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 data class InferenceResult(
@@ -55,8 +56,8 @@ object InferenceGateway {
    *
    * @param resetConversation Request preparation invoked exactly once under [inferenceLock].
    *   Callers may include lifecycle/config setup here, so it must never be reused for recovery.
-   * @param recoverAfterTimeout Pure post-timeout recovery invoked after [onInferenceFinished],
-   *   while [inferenceLock] is still held.
+   * @param recoverAfterTimeout Pure post-timeout recovery invoked after [onInferenceCleanup]
+   *   and before [onInferenceFinished], while [inferenceLock] is still held.
    * @param onCaughtThrowable Optional callback invoked with the full [Throwable] when an
    *   exception is caught during inference. Used by [ServerService] to emit verbose debug
    *   stack traces when debug mode is enabled. The gateway itself only forwards [Throwable.message]
@@ -71,6 +72,8 @@ object InferenceGateway {
     resetConversation: () -> Unit,
     runInference: InferenceFn,
     cancelInference: () -> Unit,
+    isCallerCancelled: () -> Boolean = { false },
+    onInferenceCleanup: () -> Unit = {},
     recoverAfterTimeout: () -> Unit = {},
     onToken: (partial: String, done: Boolean, thought: String?) -> Unit,
     onError: (error: String) -> Unit,
@@ -83,7 +86,9 @@ object InferenceGateway {
         var errorOccurred = false
         var timedOut = false
         try {
+          if (isCallerCancelled()) throw CancellationException("client_disconnected")
           resetConversation()
+          if (isCallerCancelled()) throw CancellationException("client_disconnected")
           runInference(
             prompt,
             { partial, done, thought ->
@@ -99,6 +104,12 @@ object InferenceGateway {
               latch.countDown()
             },
           )
+          if (isCallerCancelled()) {
+            try { cancelInference() } catch (t: Throwable) {
+              Log.w(TAG, "cancelInference() failed after caller cancellation", t)
+            }
+            throw CancellationException("client_disconnected")
+          }
           val completed = latch.await(timeoutSeconds, TimeUnit.SECONDS)
           if (!completed && !errorOccurred) {
             timedOut = true
@@ -106,22 +117,27 @@ object InferenceGateway {
             cancelInference()
           }
         } catch (t: Throwable) {
+          val expectedCallerCancellation = t is CancellationException && isCallerCancelled()
           // Reclaim memory before reporting the error if OOM
           if (t is OutOfMemoryError) System.gc()
-          onCaughtThrowable?.invoke(t)
-          if (!errorOccurred) {
+          if (!expectedCallerCancellation) onCaughtThrowable?.invoke(t)
+          if (!errorOccurred && !expectedCallerCancellation) {
             onError(t.message ?: "unknown_error")
             try { cancelInference() } catch (t2: Throwable) {
               Log.w(TAG, "cancelInference() failed during exception recovery", t2)
             }
           }
         } finally {
-          try { onInferenceFinished() } catch (t: Throwable) {
-            Log.w(TAG, "onInferenceFinished() failed", t)
+          try { onInferenceCleanup() } catch (t: Throwable) {
+            Log.w(TAG, "onInferenceCleanup() failed", t)
           } finally {
-            if (timedOut) {
-              try { recoverAfterTimeout() } catch (t: Throwable) {
-                Log.w(TAG, "recoverAfterTimeout() failed", t)
+            try {
+              if (timedOut) recoverAfterTimeout()
+            } catch (t: Throwable) {
+              Log.w(TAG, "recoverAfterTimeout() failed", t)
+            } finally {
+              try { onInferenceFinished() } catch (t: Throwable) {
+                Log.w(TAG, "onInferenceFinished() failed", t)
               }
             }
           }
@@ -133,8 +149,8 @@ object InferenceGateway {
   /**
    * @param resetConversation Request preparation invoked exactly once under [inferenceLock].
    *   Callers may include lifecycle/config setup here, so it must never be reused for recovery.
-   * @param recoverAfterTimeout Pure post-timeout recovery invoked after [onInferenceFinished],
-   *   while [inferenceLock] is still held.
+   * @param recoverAfterTimeout Pure post-timeout recovery invoked after [onInferenceCleanup]
+   *   and before [onInferenceFinished], while [inferenceLock] is still held.
    * @param onCaughtThrowable Optional callback invoked with the full [Throwable] when an
    *   exception is caught during inference. See [executeStreaming] for details.
    */
@@ -146,6 +162,7 @@ object InferenceGateway {
     resetConversation: () -> Unit,
     runInference: InferenceFn,
     cancelInference: () -> Unit,
+    onInferenceCleanup: () -> Unit = {},
     recoverAfterTimeout: () -> Unit = {},
     onInferenceFinished: () -> Unit = {},
     elapsedMs: () -> Long,
@@ -158,14 +175,28 @@ object InferenceGateway {
     val lifecycleLatch = CountDownLatch(1)
     earlyUnblock?.invoke(lifecycleLatch)
     val error = AtomicReference<String?>(null)
+    val callerCancelled = AtomicBoolean(false)
+    val runInferenceStarted = AtomicBoolean(false)
+    val callerCancellationDelivered = AtomicBoolean(false)
     val startMs = elapsedMs()
     var firstTokenMs: Long? = null
+
+    fun cancelForCallerIfStarted() {
+      if (runInferenceStarted.get() && callerCancellationDelivered.compareAndSet(false, true)) {
+        try { cancelInference() } catch (t: Throwable) {
+          Log.w(TAG, "cancelInference() failed after caller cancellation", t)
+        }
+      }
+    }
 
     executor.execute {
       synchronized(inferenceLock) {
         var timedOut = false
         try {
+          if (callerCancelled.get()) throw CancellationException("client_disconnected")
           resetConversation()
+          if (callerCancelled.get()) throw CancellationException("client_disconnected")
+          runInferenceStarted.set(true)
           runInference(
             prompt,
             { partial, done, thought ->
@@ -182,6 +213,7 @@ object InferenceGateway {
             },
             { e -> error.compareAndSet(null, e); inferenceLatch.countDown() },
           )
+          if (callerCancelled.get()) cancelForCallerIfStarted()
           val completed = inferenceLatch.await(timeoutSeconds, TimeUnit.SECONDS)
           if (!completed && error.get() == null) {
             timedOut = true
@@ -192,16 +224,20 @@ object InferenceGateway {
           }
         } catch (t: Throwable) {
           if (t is OutOfMemoryError) System.gc()
-          onCaughtThrowable?.invoke(t)
+          if (t !is CancellationException || !callerCancelled.get()) onCaughtThrowable?.invoke(t)
           error.compareAndSet(null, t.message ?: "unknown_error")
           inferenceLatch.countDown()
         } finally {
-          try { onInferenceFinished() } catch (t: Throwable) {
-            Log.w(TAG, "onInferenceFinished() failed", t)
+          try { onInferenceCleanup() } catch (t: Throwable) {
+            Log.w(TAG, "onInferenceCleanup() failed", t)
           } finally {
-            if (timedOut) {
-              try { recoverAfterTimeout() } catch (t: Throwable) {
-                Log.w(TAG, "recoverAfterTimeout() failed", t)
+            try {
+              if (timedOut) recoverAfterTimeout()
+            } catch (t: Throwable) {
+              Log.w(TAG, "recoverAfterTimeout() failed", t)
+            } finally {
+              try { onInferenceFinished() } catch (t: Throwable) {
+                Log.w(TAG, "onInferenceFinished() failed", t)
               }
             }
           }
@@ -220,11 +256,13 @@ object InferenceGateway {
         }
       }
     } catch (_: InterruptedException) {
+      callerCancelled.set(true)
       error.compareAndSet(null, "client_disconnected")
-      cancelInference()
+      cancelForCallerIfStarted()
     } catch (_: CancellationException) {
+      callerCancelled.set(true)
       error.compareAndSet(null, "client_disconnected")
-      cancelInference()
+      cancelForCallerIfStarted()
     }
     val totalMs = elapsedMs() - startMs
     val thinkingResult = thinkingSb.toString().takeIf { it.isNotEmpty() }

@@ -165,6 +165,7 @@ class InferenceRunner(
     // KV-cache reuse: when non-null, dispatch via Message.user(text) on the existing
     // Conversation (skipping resetConversation) so the SDK only prefills the new turn.
     incrementalUserText: String? = null,
+    incrementalCacheEntry: ServerLlmModelHelper.ConversationCacheEntry? = null,
   ): Pair<String?, String?> {
     // Track input tokens (rough estimate: ~4 chars per token)
     ServerMetrics.addTokensIn(estimateTokensLong(prompt))
@@ -176,6 +177,7 @@ class InferenceRunner(
 
     val userCancelFlag = AtomicBoolean(false)
     val inferenceActuallyStarted = AtomicBoolean(false)
+    val effectiveIncrementalUserText = AtomicReference<String?>(null)
     val lifecycleLatchRef = AtomicReference<java.util.concurrent.CountDownLatch?>(null)
     // Register cancel callback before any lock acquisition so queued requests are cancellable.
     if (logId != null) {
@@ -208,6 +210,7 @@ class InferenceRunner(
         if (userCancelFlag.get()) throw java.util.concurrent.CancellationException("cancelled_while_queued")
         val initErr = reinitIfNeeded(model, supportImage, supportAudio)
         if (initErr != null) throw RuntimeException("model_init_failed: $initErr")
+        if (userCancelFlag.get()) throw java.util.concurrent.CancellationException("cancelled_during_prepare")
         inferenceActuallyStarted.set(true)
         ServerMetrics.onInferenceStarted()
         if (logId != null) RequestLogStore.update(logId) { it.copy(isGenerating = true) }
@@ -215,8 +218,11 @@ class InferenceRunner(
           originalConfig = model.configValues
           model.configValues = configSnapshot
         }
-        if (incrementalUserText != null) {
-          Log.i(TAG, "INCREMENTAL_REUSE_BLOCKING requestId=$requestId model=${model.name} userTextLen=${incrementalUserText.length}")
+        val reuseIncremental = incrementalUserText != null &&
+          isIncrementalCacheIdentityCurrent(model.name, incrementalCacheEntry)
+        effectiveIncrementalUserText.set(incrementalUserText.takeIf { reuseIncremental })
+        if (reuseIncremental) {
+          Log.i(TAG, "INCREMENTAL_REUSE_BLOCKING requestId=$requestId model=${model.name} userTextLen=${incrementalUserText!!.length}")
         } else {
           ServerLlmModelHelper.resetConversation(
             model,
@@ -238,13 +244,18 @@ class InferenceRunner(
           images = images,
           audioClips = audioClips,
           extraContext = extraContext,
-          incrementalUserText = incrementalUserText,
+          incrementalUserText = effectiveIncrementalUserText.get(),
           onNativeToolCalls = if (schemaInjectionProviders.isNotEmpty()) { calls ->
             capturedNativeToolCalls.set(calls)
           } else null,
         )
       },
       cancelInference = { ServerLlmModelHelper.stopResponse(model) },
+      onInferenceCleanup = {
+        if (originalConfig != null && model.instance != null) {
+          model.configValues = originalConfig
+        }
+      },
       recoverAfterTimeout = {
         ServerLlmModelHelper.resetConversation(
           model,
@@ -256,9 +267,6 @@ class InferenceRunner(
         )
       },
       onInferenceFinished = {
-        if (originalConfig != null && model.instance != null) {
-          model.configValues = originalConfig
-        }
         if (inferenceActuallyStarted.get()) ServerMetrics.onInferenceCompleted()
       },
       elapsedMs = { SystemClock.elapsedRealtime() },
@@ -1020,8 +1028,8 @@ class InferenceRunner(
     var thinkingTagOpened = false
     var lastLogUpdateMs = 0L
     var firstTokenMs = 0L
-    var inferenceStarted = false
-    var inferenceCompleted = false
+    @Volatile var inferenceStarted = false
+    @Volatile var inferenceCompleted = false
     // True once ServerMetrics.onInferenceCompleted has been called for this request.
     // Tracked separately from inferenceCompleted because the metric decrement and the
     // local "we are done emitting" flag have different lifetimes — the metric pairs
@@ -1046,11 +1054,8 @@ class InferenceRunner(
     }
 
     /**
-     * Idempotently decrement the inferring counter. Called from the gateway's
-     * onInferenceFinished callback in the normal path, and from the streamInference
-     * finally block as a safety net. Without the idempotent guard, an exception
-     * that bypasses onInferenceFinished would leak the counter and pin the
-     * "processing" pill on indefinitely.
+     * Idempotently decrement the inferring counter from the gateway's
+     * onInferenceFinished callback, after any timeout recovery is complete.
      */
     fun markMetricsCompleted() {
       if (inferenceStarted && !metricsCompleted) {
@@ -1332,10 +1337,11 @@ class InferenceRunner(
     suppressPerModelSystem: Boolean = false,
     enableThinkingOverride: Boolean? = null,
     incrementalUserText: String? = null,
+    incrementalCacheEntry: ServerLlmModelHelper.ConversationCacheEntry? = null,
   ): HttpResponse {
     val now = BridgeUtils.epochSeconds()
     val format = ChatCompletionsFormat(model.name, now, stopSequences, tools, json, includeUsage, hasSchemaInjection = schemaInjectionProviders.isNotEmpty())
-    return streamInference(model, prompt, requestId, endpoint, format, timeoutSeconds, images, audioClips, logId, configSnapshot, prefs, schemaInjectionProviders, schemaInjectionMessages, suppressPerModelSystem, enableThinkingOverride, incrementalUserText)
+    return streamInference(model, prompt, requestId, endpoint, format, timeoutSeconds, images, audioClips, logId, configSnapshot, prefs, schemaInjectionProviders, schemaInjectionMessages, suppressPerModelSystem, enableThinkingOverride, incrementalUserText, incrementalCacheEntry)
   }
 
   // ── Streaming inference: /v1/completions ───────────────────────────────
@@ -1379,6 +1385,7 @@ class InferenceRunner(
     enableThinkingOverride: Boolean? = null,
     requestModelId: String,
     incrementalUserText: String? = null,
+    incrementalCacheEntry: ServerLlmModelHelper.ConversationCacheEntry? = null,
   ): HttpResponse {
     val format = AnthropicMessagesFormat(
       modelName = model.name,
@@ -1391,7 +1398,7 @@ class InferenceRunner(
     return streamInference(
       model, prompt, requestId, endpoint, format, timeoutSeconds, images, audioClips,
       logId, configSnapshot, prefs, schemaInjectionProviders, schemaInjectionMessages,
-      suppressPerModelSystem, enableThinkingOverride, incrementalUserText,
+      suppressPerModelSystem, enableThinkingOverride, incrementalUserText, incrementalCacheEntry,
     )
   }
 
@@ -1417,6 +1424,7 @@ class InferenceRunner(
     // on the existing Conversation instead of resetting + sending the full rendered
     // [prompt]. Caller (EndpointHandlers) decides eligibility via decideIncrementalReuse.
     incrementalUserText: String? = null,
+    incrementalCacheEntry: ServerLlmModelHelper.ConversationCacheEntry? = null,
   ): HttpResponse {
     val streamStartMs = SystemClock.elapsedRealtime()
     ServerMetrics.addTokensIn(estimateTokensLong(prompt))
@@ -1467,6 +1475,7 @@ class InferenceRunner(
       // that concurrent updateConfigValues() writes are visible before we snapshot.
       var originalConfig: Map<String, Any>? = null
       val capturedNativeToolCalls = AtomicReference<List<com.google.ai.edge.litertlm.ToolCall>?>(null)
+      val effectiveIncrementalUserText = AtomicReference<String?>(null)
 
       // Pre-emit the format's header (e.g. Anthropic `message_start`) as the very
       // first SSE bytes so the client sees a response before prefill begins. Without
@@ -1518,17 +1527,21 @@ class InferenceRunner(
           if (userCancelFlag.get()) throw java.util.concurrent.CancellationException("cancelled_while_queued")
           val initErr = reinitIfNeeded(model, supportImage, supportAudio)
           if (initErr != null) throw RuntimeException("model_init_failed: $initErr")
+          if (userCancelFlag.get()) throw java.util.concurrent.CancellationException("cancelled_during_prepare")
           state.markStarted()
           if (logId != null) RequestLogStore.update(logId) { it.copy(isGenerating = true) }
           if (configSnapshot != null) {
             originalConfig = model.configValues
             model.configValues = configSnapshot
           }
-          if (incrementalUserText != null) {
+          val reuseIncremental = incrementalUserText != null &&
+            isIncrementalCacheIdentityCurrent(model.name, incrementalCacheEntry)
+          effectiveIncrementalUserText.set(incrementalUserText.takeIf { reuseIncremental })
+          if (reuseIncremental) {
             // Reuse the live Conversation: SDK has the prior history in its internal
             // diff state, and runInference will dispatch via Message.user(text) so
             // only the new turn is prefilled.
-            Log.i(TAG, "INCREMENTAL_REUSE requestId=$requestId model=${model.name} userTextLen=${incrementalUserText.length}")
+            Log.i(TAG, "INCREMENTAL_REUSE requestId=$requestId model=${model.name} userTextLen=${incrementalUserText!!.length}")
           } else {
             ServerLlmModelHelper.resetConversation(
               model,
@@ -1550,13 +1563,19 @@ class InferenceRunner(
             images = images,
             audioClips = audioClips,
             extraContext = extraContext,
-            incrementalUserText = incrementalUserText,
+            incrementalUserText = effectiveIncrementalUserText.get(),
             onNativeToolCalls = if (schemaInjectionProviders.isNotEmpty()) { calls ->
               capturedNativeToolCalls.set(calls)
             } else null,
           )
         },
         cancelInference = { ServerLlmModelHelper.stopResponse(model) },
+        isCallerCancelled = { userCancelFlag.get() },
+        onInferenceCleanup = {
+          if (originalConfig != null && model.instance != null) {
+            model.configValues = originalConfig
+          }
+        },
         recoverAfterTimeout = {
           ServerLlmModelHelper.resetConversation(
             model,
@@ -1574,9 +1593,6 @@ class InferenceRunner(
           channel.trySend(StreamEvent.Error(error))
         },
         onInferenceFinished = {
-          if (originalConfig != null && model.instance != null) {
-            model.configValues = originalConfig
-          }
           state.markMetricsCompleted()
         },
         onCaughtThrowable = { t -> emitDebugStackTrace(t, format.sourceTag, model.name) },
@@ -1595,7 +1611,8 @@ class InferenceRunner(
               Log.i(TAG, "STREAM_DISCONNECT requestId=$requestId endpoint=$endpoint elapsedMs=$elapsedMs " +
                 "firstTokenMs=${state.firstTokenMs} headerWritten=${state.headerWritten} " +
                 "fullText.len=${state.fullText.length} fullThinking.len=${state.fullThinking.length}")
-              ServerLlmModelHelper.stopResponse(model)
+              userCancelFlag.set(true)
+              if (state.inferenceStarted) ServerLlmModelHelper.stopResponse(model)
               state.markCompleted()
               state.logCancellation()
               format.emitCancellation(writer, state.headerWritten)
@@ -1637,7 +1654,8 @@ class InferenceRunner(
         }
       } catch (_: kotlinx.coroutines.CancellationException) {
         // Ktor cancelled the coroutine (client disconnect or withTimeout expired) — clean up
-        ServerLlmModelHelper.stopResponse(model)
+        userCancelFlag.set(true)
+        if (state.inferenceStarted) ServerLlmModelHelper.stopResponse(model)
         channel.close()
         if (!state.inferenceCompleted) {
           // Finalize the log entry (isPending=false, isCancelled, 499) so it doesn't
@@ -1661,13 +1679,9 @@ class InferenceRunner(
           RequestLogStore.unregisterCancellation(logId)
         }
       } finally {
-        // Safety net: guarantee isInferring flag is cleared even if an unexpected
-        // exception bypasses normal completion/cancellation paths. markCompleted
-        // flips the local emitting-done flag; markMetricsCompleted decrements
-        // the ServerMetrics counter idempotently so the "processing" pill clears
-        // even when onInferenceFinished was never reached.
+        // Gateway owns the metrics lifecycle through onInferenceFinished. Keeping
+        // completion there ensures timeout recovery remains part of PROCESSING.
         state.markCompleted()
-        state.markMetricsCompleted()
         heartbeatJob?.cancel()
       }
     }
