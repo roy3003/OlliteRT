@@ -365,10 +365,15 @@ class ServerMetricsTest {
   @Test
   fun inferenceStateToggles() {
     assertFalse(ServerMetrics.isInferring.value)
+    assertEquals(0L, ServerMetrics.inferenceSequence.value)
     ServerMetrics.onInferenceStarted()
     assertTrue(ServerMetrics.isInferring.value)
+    assertEquals(1L, ServerMetrics.inferenceSequence.value)
     ServerMetrics.onInferenceCompleted()
     assertFalse(ServerMetrics.isInferring.value)
+
+    ServerMetrics.onInferenceStarted()
+    assertEquals(2L, ServerMetrics.inferenceSequence.value)
   }
 
   // ── onModelIdleUnloaded() / onModelReloadedFromIdle() ────────────────────

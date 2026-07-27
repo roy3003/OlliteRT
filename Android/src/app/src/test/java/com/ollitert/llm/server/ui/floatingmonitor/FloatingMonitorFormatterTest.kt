@@ -33,12 +33,13 @@ class FloatingMonitorFormatterTest {
   }
 
   @Test
-  fun `processing elapsed uses bounded second and minute formats`() {
-    assertEquals("0s", formatProcessingElapsed(0))
-    assertEquals("59s", formatProcessingElapsed(59_000))
-    assertEquals("1:00", formatProcessingElapsed(60_000))
-    assertEquals("99:59", formatProcessingElapsed(5_999_000))
-    assertEquals("99m+", formatProcessingElapsed(6_000_000))
-    assertEquals("99m+", formatProcessingElapsed(Long.MAX_VALUE))
+  fun `processing elapsed always uses seconds without an inline suffix`() {
+    assertEquals("0", formatProcessingElapsed(0))
+    assertEquals("59", formatProcessingElapsed(59_999))
+    assertEquals("60", formatProcessingElapsed(60_000))
+    assertEquals("3,599", formatProcessingElapsed(3_599_000))
+    assertEquals("9,999", formatProcessingElapsed(9_999_999))
+    assertEquals("9,999+", formatProcessingElapsed(10_000_000))
+    assertEquals("9,999+", formatProcessingElapsed(Long.MAX_VALUE))
   }
 }

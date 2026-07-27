@@ -54,7 +54,7 @@ class FloatingMonitorWindowReconcilerTest {
       FloatingMonitorRenderModel(
         visualState = FloatingMonitorVisualState.Processing,
         requestValue = "99,999+",
-        secondaryValue = "1:01",
+        secondaryValue = "61",
         secondaryLabel = "proc",
       ),
       deriveFloatingMonitorRenderModel(

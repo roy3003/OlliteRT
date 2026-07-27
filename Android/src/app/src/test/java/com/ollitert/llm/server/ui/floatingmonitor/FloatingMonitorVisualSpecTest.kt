@@ -17,18 +17,30 @@
 package com.ollitert.llm.server.ui.floatingmonitor
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FloatingMonitorVisualSpecTest {
 
   @Test
   fun runningUsesFilledGreenSurface() {
-    assertEquals(0xFF207A4D.toInt(), floatingMonitorFillColor(FloatingMonitorVisualState.Running))
+    assertEquals(0xFF55D68B.toInt(), floatingMonitorFillColor(FloatingMonitorVisualState.Running))
   }
 
   @Test
   fun processingUsesFilledOrangeSurface() {
-    assertEquals(0xFF9A5300.toInt(), floatingMonitorFillColor(FloatingMonitorVisualState.Processing))
+    assertEquals(0xFFFFB74D.toInt(), floatingMonitorFillColor(FloatingMonitorVisualState.Processing))
+  }
+
+  @Test
+  fun monitorTextUsesAppUiBlack() {
+    assertEquals(0xFF000000.toInt(), FLOATING_MONITOR_TEXT_COLOR)
+  }
+
+  @Test
+  fun secondsSuffixIsSmallerWithoutMovingTheNumericCenter() {
+    assertTrue(FLOATING_MONITOR_SECONDS_SUFFIX_TEXT_SIZE_SP < FLOATING_MONITOR_VALUE_TEXT_SIZE_SP)
+    assertEquals(64f, floatingMonitorSecondsSuffixStartX(centerX = 50f, numericWidth = 24f, gap = 2f))
   }
 
   @Test(expected = IllegalStateException::class)

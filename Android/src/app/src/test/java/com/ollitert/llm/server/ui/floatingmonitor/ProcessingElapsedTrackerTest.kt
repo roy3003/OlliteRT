@@ -29,15 +29,15 @@ class ProcessingElapsedTrackerTest {
 
     assertNull(tracker.elapsedMillis())
 
-    tracker.update(isInferring = true)
+    tracker.update(isInferring = true, inferenceSequence = 1)
     now = 2_500L
     assertEquals(1_500L, tracker.elapsedMillis())
 
-    tracker.update(isInferring = true)
+    tracker.update(isInferring = true, inferenceSequence = 1)
     now = 4_000L
     assertEquals(3_000L, tracker.elapsedMillis())
 
-    tracker.update(isInferring = false)
+    tracker.update(isInferring = false, inferenceSequence = 1)
     assertNull(tracker.elapsedMillis())
   }
 
@@ -46,17 +46,32 @@ class ProcessingElapsedTrackerTest {
     var now = 5_000L
     val tracker = ProcessingElapsedTracker { now }
 
-    tracker.update(isInferring = true)
+    tracker.update(isInferring = true, inferenceSequence = 1)
     now = 6_250L
     assertEquals(1_250L, tracker.elapsedMillis())
 
-    tracker.update(isInferring = false)
+    tracker.update(isInferring = false, inferenceSequence = 1)
     now = 10_000L
-    tracker.update(isInferring = true)
+    tracker.update(isInferring = true, inferenceSequence = 2)
     now = 10_750L
     assertEquals(750L, tracker.elapsedMillis())
 
     tracker.dispose()
     assertNull(tracker.elapsedMillis())
+  }
+
+  @Test
+  fun `new request sequence resets elapsed even when false transition is conflated`() {
+    var now = 20_000L
+    val tracker = ProcessingElapsedTracker { now }
+
+    tracker.update(isInferring = true, inferenceSequence = 10)
+    now = 24_000L
+    assertEquals(4_000L, tracker.elapsedMillis())
+
+    tracker.update(isInferring = true, inferenceSequence = 11)
+    assertEquals(0L, tracker.elapsedMillis())
+    now = 24_750L
+    assertEquals(750L, tracker.elapsedMillis())
   }
 }
