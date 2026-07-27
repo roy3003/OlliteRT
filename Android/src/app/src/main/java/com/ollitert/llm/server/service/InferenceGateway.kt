@@ -47,6 +47,70 @@ private const val TAG = "OlliteRT.Gateway"
 
 object InferenceGateway {
 
+  private enum class ExecutionPhase {
+    QUEUED,
+    PREPARING,
+    DISPATCHING,
+    RUNNING,
+    CANCELLING,
+    SETTLING,
+    FINISHED,
+    CANCELLED_BEFORE_DISPATCH,
+  }
+
+  /** Owns the dispatch/cancel boundary for one request. */
+  private class InferenceExecution(
+    private val cancelNative: () -> Unit,
+  ) {
+    private val stateLock = Any()
+    private var phase = ExecutionPhase.QUEUED
+
+    fun beginPreparation(): Boolean = synchronized(stateLock) {
+      if (phase != ExecutionPhase.QUEUED) return@synchronized false
+      phase = ExecutionPhase.PREPARING
+      true
+    }
+
+    fun dispatch(startNative: () -> Unit): Boolean = synchronized(stateLock) {
+      if (phase != ExecutionPhase.PREPARING) return@synchronized false
+      phase = ExecutionPhase.DISPATCHING
+      try {
+        startNative()
+        phase = ExecutionPhase.RUNNING
+        true
+      } catch (t: Throwable) {
+        phase = ExecutionPhase.SETTLING
+        throw t
+      }
+    }
+
+    fun cancel() {
+      synchronized(stateLock) {
+        when (phase) {
+          ExecutionPhase.QUEUED,
+          ExecutionPhase.PREPARING -> phase = ExecutionPhase.CANCELLED_BEFORE_DISPATCH
+
+          ExecutionPhase.RUNNING -> {
+            phase = ExecutionPhase.CANCELLING
+            cancelNative()
+          }
+
+          ExecutionPhase.DISPATCHING,
+          ExecutionPhase.CANCELLING,
+          ExecutionPhase.SETTLING,
+          ExecutionPhase.FINISHED,
+          ExecutionPhase.CANCELLED_BEFORE_DISPATCH -> Unit
+        }
+      }
+    }
+
+    fun finish() {
+      synchronized(stateLock) {
+        phase = ExecutionPhase.FINISHED
+      }
+    }
+  }
+
   /**
    * Fires inference on [executor] and delivers tokens via [onToken] as they arrive.
    * Returns immediately; the caller receives the stream via [onToken]/[onError] callbacks.
@@ -141,6 +205,7 @@ object InferenceGateway {
     val thinkingSb = StringBuilder()
     val inferenceLatch = CountDownLatch(1)
     val lifecycleLatch = CountDownLatch(1)
+    val execution = InferenceExecution(cancelInference)
     earlyUnblock?.invoke(lifecycleLatch)
     val error = AtomicReference<String?>(null)
     val startMs = elapsedMs()
@@ -149,32 +214,36 @@ object InferenceGateway {
     executor.execute {
       synchronized(inferenceLock) {
         try {
+          if (!execution.beginPreparation()) return@synchronized
           resetConversation()
-          runInference(
-            prompt,
-            { partial, done, thought ->
-              if (partial.isNotEmpty()) {
-                if (firstTokenMs == null) {
-                  firstTokenMs = elapsedMs() - startMs
+          val dispatched = execution.dispatch {
+            runInference(
+              prompt,
+              { partial, done, thought ->
+                if (partial.isNotEmpty()) {
+                  if (firstTokenMs == null) {
+                    firstTokenMs = elapsedMs() - startMs
+                  }
+                  sb.append(partial)
                 }
-                sb.append(partial)
-              }
-              if (!thought.isNullOrEmpty()) {
-                thinkingSb.append(thought)
-              }
-              if (done) inferenceLatch.countDown()
-            },
-            { e -> error.compareAndSet(null, e); inferenceLatch.countDown() },
-          )
+                if (!thought.isNullOrEmpty()) {
+                  thinkingSb.append(thought)
+                }
+                if (done) inferenceLatch.countDown()
+              },
+              { e -> error.compareAndSet(null, e); inferenceLatch.countDown() },
+            )
+          }
+          if (!dispatched) return@synchronized
           val completed = inferenceLatch.await(timeoutSeconds, TimeUnit.SECONDS)
           if (!completed && error.get() == null) {
             error.compareAndSet(null, "timeout")
-            cancelInference()
+            execution.cancel()
             // Safe: entire block holds inferenceLock, so no concurrent inference can start
             // between cancelInference() and resetConversation().
             resetConversation()
           } else if (error.get() != null) {
-            cancelInference()
+            execution.cancel()
           }
         } catch (t: Throwable) {
           if (t is OutOfMemoryError) System.gc()
@@ -185,6 +254,7 @@ object InferenceGateway {
           try { onInferenceFinished() } catch (t: Throwable) {
             Log.w(TAG, "onInferenceFinished() failed", t)
           }
+          execution.finish()
           lifecycleLatch.countDown()
         }
       }
@@ -201,10 +271,10 @@ object InferenceGateway {
       }
     } catch (_: InterruptedException) {
       error.compareAndSet(null, "client_disconnected")
-      cancelInference()
+      execution.cancel()
     } catch (_: CancellationException) {
       error.compareAndSet(null, "client_disconnected")
-      cancelInference()
+      execution.cancel()
     }
     val totalMs = elapsedMs() - startMs
     val thinkingResult = thinkingSb.toString().takeIf { it.isNotEmpty() }
