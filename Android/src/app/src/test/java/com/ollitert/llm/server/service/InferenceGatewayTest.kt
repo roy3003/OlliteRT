@@ -70,6 +70,43 @@ class InferenceGatewayTest {
   }
 
   @Test
+  fun completedGateIgnoresLateCallerCancellation() {
+    val nativeCancellations = AtomicInteger(0)
+    val gate = InferenceCancellationGate { nativeCancellations.incrementAndGet() }
+
+    assertTrue(gate.dispatchIfActive {})
+    gate.finish()
+    gate.cancelCaller()
+
+    assertEquals(0, nativeCancellations.get())
+  }
+
+  @Test
+  fun nativeCancellationDoesNotCommitInferenceSuccess() {
+    val cacheCommits = AtomicInteger(0)
+    val gate = InferenceCancellationGate {}
+
+    InferenceGateway.executeStreaming(
+      prompt = "stop-sequence",
+      timeoutSeconds = 5,
+      executor = directExecutor,
+      inferenceLock = lock,
+      resetConversation = {},
+      runInference = { _, onPartial, _ ->
+        gate.stopNative("stop sequence")
+        onPartial("partial", true, null)
+      },
+      cancelInference = {},
+      cancellationGate = gate,
+      onInferenceSucceeded = { cacheCommits.incrementAndGet() },
+      onToken = { _, _, _ -> },
+      onError = { fail("native cancellation-as-done is not an inference error") },
+    )
+
+    assertEquals(0, cacheCommits.get())
+  }
+
+  @Test
   fun cancellationGateDoesNotReturnUntilInFlightDispatchCanBeCancelled() {
     val dispatchEntered = CountDownLatch(1)
     val releaseDispatch = CountDownLatch(1)

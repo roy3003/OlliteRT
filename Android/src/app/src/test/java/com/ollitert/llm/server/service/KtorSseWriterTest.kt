@@ -76,6 +76,39 @@ class KtorSseWriterTest {
   }
 
   @Test
+  fun writeFailurePublishesCancellationImmediately() = runBlocking {
+    val failingWriter = object : Writer() {
+      override fun write(cbuf: CharArray, off: Int, len: Int) = throw IOException("client disconnected")
+      override fun flush() {}
+      override fun close() {}
+    }
+    val writer = KtorSseWriterImpl(failingWriter)
+    var cancellations = 0
+    writer.onCancellation { cancellations += 1 }
+
+    writer.emit("data: test\n\n")
+    writer.emit("data: ignored\n\n")
+
+    assertEquals(1, cancellations)
+  }
+
+  @Test
+  fun lateCancellationRegistrationObservesEarlierWriteFailure() = runBlocking {
+    val failingWriter = object : Writer() {
+      override fun write(cbuf: CharArray, off: Int, len: Int) = throw IOException("client disconnected")
+      override fun flush() {}
+      override fun close() {}
+    }
+    val writer = KtorSseWriterImpl(failingWriter)
+    writer.emit("data: test\n\n")
+    var cancellations = 0
+
+    writer.onCancellation { cancellations += 1 }
+
+    assertEquals(1, cancellations)
+  }
+
+  @Test
   fun flushFailureSetsCancelled() = runBlocking {
     val failOnFlush = object : Writer() {
       override fun write(cbuf: CharArray, off: Int, len: Int) {}
