@@ -285,6 +285,25 @@ class InferenceGatewayTest {
     assertTrue("onInferenceFinished must be called on exception path", finishedCalled)
   }
 
+  // Uses 1s real-time wait — CountDownLatch.await() can't use virtual time.
+  @Test
+  fun blockingTimeoutPreparesInferenceOnlyOnce() = runBlocking {
+    var prepareCalls = 0
+    val result = InferenceGateway.execute(
+      prompt = "timeout",
+      timeoutSeconds = 1,
+      executor = directExecutor,
+      inferenceLock = lock,
+      resetConversation = { prepareCalls += 1 },
+      runInference = { _, _, _ -> },
+      cancelInference = {},
+      elapsedMs = { tick() },
+    )
+
+    assertEquals("timeout", result.error)
+    assertEquals("request preparation must not run again during timeout recovery", 1, prepareCalls)
+  }
+
   // ── executeStreaming tests ────────────────────────────────────────────────
 
   private fun streaming(
