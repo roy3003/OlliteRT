@@ -29,6 +29,8 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class InferenceGatewayTest {
 
@@ -387,6 +389,73 @@ class InferenceGatewayTest {
   }
 
   // ── Cancellation tests ──────────────────────────────────────────────────
+
+  @Test
+  fun queuedCancellationDoesNotCancelOrDispatchNativeInference() = runBlocking {
+    val threadPool = Executors.newSingleThreadExecutor()
+    val submissions = AtomicInteger(0)
+    val secondSubmitted = CountDownLatch(1)
+    val trackingExecutor = Executor { command ->
+      threadPool.execute(command)
+      if (submissions.incrementAndGet() == 2) secondSubmitted.countDown()
+    }
+    val firstStarted = CountDownLatch(1)
+    val releaseFirst = CountDownLatch(1)
+    val secondDispatched = AtomicBoolean(false)
+    val secondCancelCalls = AtomicInteger(0)
+
+    try {
+      val firstJob = launch(Dispatchers.Default) {
+        InferenceGateway.execute(
+          prompt = "first",
+          timeoutSeconds = 30,
+          executor = trackingExecutor,
+          inferenceLock = lock,
+          resetConversation = {},
+          runInference = { _, onPartial, _ ->
+            firstStarted.countDown()
+            releaseFirst.await()
+            onPartial("", true, null)
+          },
+          cancelInference = {},
+          elapsedMs = { tick() },
+        )
+      }
+      assertTrue("first inference should own the executor", firstStarted.await(5, TimeUnit.SECONDS))
+
+      val queuedJob = launch(Dispatchers.Default) {
+        InferenceGateway.execute(
+          prompt = "queued",
+          timeoutSeconds = 30,
+          executor = trackingExecutor,
+          inferenceLock = lock,
+          resetConversation = {},
+          runInference = { _, onPartial, _ ->
+            secondDispatched.set(true)
+            onPartial("", true, null)
+          },
+          cancelInference = { secondCancelCalls.incrementAndGet() },
+          elapsedMs = { tick() },
+        )
+      }
+      assertTrue("second inference should be queued", secondSubmitted.await(5, TimeUnit.SECONDS))
+
+      queuedJob.cancel()
+      queuedJob.join()
+      releaseFirst.countDown()
+      firstJob.join()
+
+      val queueDrained = CountDownLatch(1)
+      threadPool.execute { queueDrained.countDown() }
+      assertTrue("executor queue should drain", queueDrained.await(5, TimeUnit.SECONDS))
+
+      assertEquals("queued cancellation must not call shared native cancel", 0, secondCancelCalls.get())
+      assertTrue("cancelled queued request must never dispatch", !secondDispatched.get())
+    } finally {
+      releaseFirst.countDown()
+      threadPool.shutdownNow()
+    }
+  }
 
   @Test
   fun cancellationTriggersCancelInference() = runBlocking {
