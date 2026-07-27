@@ -132,6 +132,29 @@ class InferenceGatewayTest {
   }
 
   @Test
+  fun timeoutPreparesInferenceOnlyOnce() = runBlocking {
+    val preparationCalls = AtomicInteger(0)
+
+    val result = InferenceGateway.execute(
+      prompt = "long",
+      timeoutSeconds = 0,
+      executor = directExecutor,
+      inferenceLock = lock,
+      resetConversation = { preparationCalls.incrementAndGet() },
+      runInference = { _, _, _ -> /* never completes */ },
+      cancelInference = {},
+      elapsedMs = { 0L },
+    )
+
+    assertEquals("timeout", result.error)
+    assertEquals(
+      "timeout recovery must not repeat request preparation",
+      1,
+      preparationCalls.get(),
+    )
+  }
+
+  @Test
   fun cancelInferenceCalledOnError() = runBlocking {
     var cancelled = false
     InferenceGateway.execute(
