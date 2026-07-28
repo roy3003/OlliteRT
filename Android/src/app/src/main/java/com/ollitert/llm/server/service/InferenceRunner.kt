@@ -1046,6 +1046,7 @@ class InferenceRunner(
     val streamStartMs: Long,
     val keepPartial: Boolean,
     val cancelInference: () -> Unit,
+    val onSuccessfulCompletion: () -> Unit,
   ) {
     val fullText = StringBuilder()
     val fullThinking = StringBuilder()
@@ -1062,6 +1063,7 @@ class InferenceRunner(
     // callback and the safety-net finally try to clear it.
     var metricsCompleted = false
     var stopSequenceTriggered = false
+    var successfulCompletionReported = false
     // The actual stop string that matched, set in lock-step with stopSequenceTriggered.
     // Anthropic /v1/messages echoes this back in the response `stop_sequence` field;
     // OAI-shape formats ignore it.
@@ -1255,6 +1257,12 @@ class InferenceRunner(
         SchemaInjectionBridge.convertNativeToolCalls(nativeCalls)
       } else emptyList()
       val parsedToolCalls = format.emitCompletion(writer, fullText.toString(), fullThinking.toString(), promptTokens, completionTokens, ttfbMs, totalLatencyMs, effectiveMaxTokens, convertedNativeCalls, stopSequenceTriggered, matchedStopSequence)
+      if (shouldCommitIncrementalCache(completed = event.done, stopSequenceTriggered = stopSequenceTriggered) && !successfulCompletionReported) {
+        successfulCompletionReported = true
+        runCatching(onSuccessfulCompletion).onFailure {
+          Log.w(TAG, "Failed to commit incremental cache metadata: ${it.message}")
+        }
+      }
 
       if (logId != null) {
         val combinedText = buildCombinedText(fullText, fullThinking)
@@ -1365,10 +1373,11 @@ class InferenceRunner(
     suppressPerModelSystem: Boolean = false,
     enableThinkingOverride: Boolean? = null,
     incrementalUserText: String? = null,
+    onSuccessfulCompletion: () -> Unit = {},
   ): HttpResponse {
     val now = BridgeUtils.epochSeconds()
     val format = ChatCompletionsFormat(model.name, now, stopSequences, tools, json, includeUsage, hasSchemaInjection = schemaInjectionProviders.isNotEmpty())
-    return streamInference(model, prompt, requestId, endpoint, format, timeoutSeconds, images, audioClips, logId, configSnapshot, prefs, schemaInjectionProviders, schemaInjectionMessages, suppressPerModelSystem, enableThinkingOverride, incrementalUserText)
+    return streamInference(model, prompt, requestId, endpoint, format, timeoutSeconds, images, audioClips, logId, configSnapshot, prefs, schemaInjectionProviders, schemaInjectionMessages, suppressPerModelSystem, enableThinkingOverride, incrementalUserText, onSuccessfulCompletion)
   }
 
   // ── Streaming inference: /v1/completions ───────────────────────────────
@@ -1412,6 +1421,7 @@ class InferenceRunner(
     enableThinkingOverride: Boolean? = null,
     requestModelId: String,
     incrementalUserText: String? = null,
+    onSuccessfulCompletion: () -> Unit = {},
   ): HttpResponse {
     val format = AnthropicMessagesFormat(
       modelName = model.name,
@@ -1424,7 +1434,7 @@ class InferenceRunner(
     return streamInference(
       model, prompt, requestId, endpoint, format, timeoutSeconds, images, audioClips,
       logId, configSnapshot, prefs, schemaInjectionProviders, schemaInjectionMessages,
-      suppressPerModelSystem, enableThinkingOverride, incrementalUserText,
+      suppressPerModelSystem, enableThinkingOverride, incrementalUserText, onSuccessfulCompletion,
     )
   }
 
@@ -1450,6 +1460,7 @@ class InferenceRunner(
     // on the existing Conversation instead of resetting + sending the full rendered
     // [prompt]. Caller (EndpointHandlers) decides eligibility via decideIncrementalReuse.
     incrementalUserText: String? = null,
+    onSuccessfulCompletion: () -> Unit = {},
   ): HttpResponse {
     val streamStartMs = SystemClock.elapsedRealtime()
     ServerMetrics.addTokensIn(estimateTokensLong(prompt))
@@ -1501,6 +1512,7 @@ class InferenceRunner(
         streamStartMs,
         keepPartial,
         cancelInference = { cancellationActionRef.get()?.invoke() },
+        onSuccessfulCompletion = onSuccessfulCompletion,
       )
 
       // Captured inside the resetConversation lambda (which runs under inferenceLock) so

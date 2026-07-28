@@ -244,24 +244,22 @@ class EndpointHandlers(
     val incrementalUserText = if (incrementalDecision.kind == IncrementalDecision.Kind.EXTEND) {
       incrementalDecision.newUserText
     } else null
-    // Update the conversation cache to reflect what the SDK now holds. After this
-    // request completes, the SDK's Conversation will contain exactly the turns we
-    // just sent it (history + new user) plus the assistant reply it generates.
-    // For prefix-matching the next request, we record the user turns we've sent
-    // — assistant text isn't tracked because we don't capture streamed responses
-    // back into this layer, and the next match is on user-turn prefixes only
-    // (see decideIncrementalReuse).
+    // Commit incremental metadata only after a completed response. Recovery/reset invalidates
+    // metadata for failed native executions; queued cancellation leaves the previous valid
+    // Conversation and metadata untouched.
     val sentTurns = req.messages
       .filter { it.role != "system" }
       .map { ServerLlmModelHelper.ConversationTurn(it.role, it.content.text) }
-    ServerLlmModelHelper.updateCachedTurns(
-      model.name,
-      ServerLlmModelHelper.ConversationCacheEntry(
-        turns = sentTurns,
-        systemPromptHash = if (suppressPerModelSystem) 0 else (req.messages.firstOrNull { it.role == "system" }?.content?.text?.hashCode() ?: 0),
-        toolsHash = tools.hashCode(),
-      ),
-    )
+    val commitIncrementalCache = {
+      ServerLlmModelHelper.updateCachedTurns(
+        model.name,
+        ServerLlmModelHelper.ConversationCacheEntry(
+          turns = sentTurns,
+          systemPromptHash = if (suppressPerModelSystem) 0 else (req.messages.firstOrNull { it.role == "system" }?.content?.text?.hashCode() ?: 0),
+          toolsHash = tools.hashCode(),
+        ),
+      )
+    }
     return if (req.stream == true) {
       if (useAnthropicStream) {
         inferenceRunner.streamMessagesLlm(
@@ -283,9 +281,10 @@ class EndpointHandlers(
           enableThinkingOverride = enableThinkingOverride,
           requestModelId = requestedId,
           incrementalUserText = incrementalUserText,
+          onSuccessfulCompletion = commitIncrementalCache,
         )
       } else {
-        inferenceRunner.streamChatLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, includeUsage = includeUsage, stopSequences = stopSeqs, tools = if (hasTools) tools else null, configSnapshot = sampler, json = json, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText)
+        inferenceRunner.streamChatLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, includeUsage = includeUsage, stopSequences = stopSeqs, tools = if (hasTools) tools else null, configSnapshot = sampler, json = json, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText, onSuccessfulCompletion = commitIncrementalCache)
       }
     } else {
       ServerMetrics.onInferenceStarted()
@@ -293,7 +292,8 @@ class EndpointHandlers(
       val (rawText, llmError) = inferenceRunner.runLlm(model, prompt, requestId, endpoint, timeoutSeconds = ServerPrefs.getTimeoutChatCompletions(context), images = images, audioClips = audioClips, logId = logId, configSnapshot = sampler, prefs = prefs, schemaInjectionProviders = schemaInjectionProviders, schemaInjectionMessages = schemaInjectionMessages, onNativeToolCalls = if (useSchemaInjection) { calls -> schemaInjectionToolCalls = calls } else null, suppressPerModelSystem = suppressPerModelSystem, enableThinkingOverride = enableThinkingOverride, incrementalUserText = incrementalUserText)
       ServerMetrics.onInferenceCompleted()
       if (rawText == null) return handleBlockingInferenceError(llmError, logId)
-      val (text, _) = InferenceRunner.applyStopSequences(rawText, stopSeqs)
+      val (text, stopSequenceTriggered) = InferenceRunner.applyStopSequences(rawText, stopSeqs)
+      if (shouldCommitIncrementalCache(completed = true, stopSequenceTriggered = stopSequenceTriggered)) commitIncrementalCache()
 
       val promptTokens = estimateTokens(prompt)
 
@@ -645,6 +645,11 @@ private fun hasSamplerParams(
 
 private fun Model.isGpuBackend(): Boolean =
   getStringConfigValue(key = ConfigKeys.ACCELERATOR, defaultValue = Accelerator.GPU.label) == Accelerator.GPU.label
+
+internal fun shouldCommitIncrementalCache(
+  completed: Boolean,
+  stopSequenceTriggered: Boolean,
+): Boolean = completed && !stopSequenceTriggered
 
 internal fun describeClientSamplerParams(
   temperature: Double?,

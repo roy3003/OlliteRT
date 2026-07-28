@@ -212,4 +212,12 @@ class EndpointHandlersHelpersTest {
     )!!
     assertEquals(0.5f, config[ConfigKeys.TEMPERATURE.id])
   }
+
+  @Test
+  fun incrementalCacheCommitsOnlyCompletedNonStopSequenceResults() {
+    assertTrue(shouldCommitIncrementalCache(completed = true, stopSequenceTriggered = false))
+    assertFalse(shouldCommitIncrementalCache(completed = false, stopSequenceTriggered = false))
+    assertFalse(shouldCommitIncrementalCache(completed = true, stopSequenceTriggered = true))
+    assertFalse(shouldCommitIncrementalCache(completed = false, stopSequenceTriggered = true))
+  }
 }
