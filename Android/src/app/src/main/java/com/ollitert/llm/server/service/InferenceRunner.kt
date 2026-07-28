@@ -1045,6 +1045,7 @@ class InferenceRunner(
     val logId: String?,
     val streamStartMs: Long,
     val keepPartial: Boolean,
+    val cancelInference: () -> Unit,
   ) {
     val fullText = StringBuilder()
     val fullThinking = StringBuilder()
@@ -1136,7 +1137,7 @@ class InferenceRunner(
         fullText.append(currentText.substring(0, earliest))
         stopSequenceTriggered = true
         matchedStopSequence = matched
-        ServerLlmModelHelper.stopResponse(model)
+        cancelInference()
       }
     }
 
@@ -1463,12 +1464,12 @@ class InferenceRunner(
     // Register cancel callback before any lock so queued requests are immediately cancellable.
     val userCancelFlag = AtomicBoolean(false)
     val channelRef = AtomicReference<Channel<StreamEvent>?>(null)
-    val stateRef = AtomicReference<StreamState?>(null)
+    val cancellationActionRef = AtomicReference<(() -> Unit)?>(null)
     if (logId != null) {
       RequestLogStore.registerCancellation(logId) {
         userCancelFlag.set(true)
         channelRef.get()?.close()
-        stateRef.get()?.let { if (it.inferenceStarted) ServerLlmModelHelper.stopResponse(model) }
+        cancellationActionRef.get()?.invoke()
       }
     }
 
@@ -1492,8 +1493,15 @@ class InferenceRunner(
     return HttpResponse.Sse(outerTimeoutMs = outerTimeoutMs) { writer ->
       val channel = Channel<StreamEvent>(Channel.UNLIMITED)
       channelRef.set(channel)
-      val state = StreamState(model, requestId, endpoint, logId, streamStartMs, keepPartial)
-      stateRef.set(state)
+      val state = StreamState(
+        model,
+        requestId,
+        endpoint,
+        logId,
+        streamStartMs,
+        keepPartial,
+        cancelInference = { cancellationActionRef.get()?.invoke() },
+      )
 
       // Captured inside the resetConversation lambda (which runs under inferenceLock) so
       // that concurrent updateConfigValues() writes are visible before we snapshot.
@@ -1618,6 +1626,13 @@ class InferenceRunner(
         onError = { error ->
           channel.trySend(StreamEvent.Error(error))
         },
+        onCancellationReady = { cancel ->
+          cancellationActionRef.set(cancel)
+          if (userCancelFlag.get()) {
+            channel.close()
+            cancel()
+          }
+        },
         onCaughtThrowable = { t -> emitDebugStackTrace(t, format.sourceTag, model.name) },
       )
 
@@ -1634,7 +1649,7 @@ class InferenceRunner(
               Log.i(TAG, "STREAM_DISCONNECT requestId=$requestId endpoint=$endpoint elapsedMs=$elapsedMs " +
                 "firstTokenMs=${state.firstTokenMs} headerWritten=${state.headerWritten} " +
                 "fullText.len=${state.fullText.length} fullThinking.len=${state.fullThinking.length}")
-              ServerLlmModelHelper.stopResponse(model)
+              cancellationActionRef.get()?.invoke()
               state.markCompleted()
               state.logCancellation()
               format.emitCancellation(writer, state.headerWritten)
@@ -1676,7 +1691,7 @@ class InferenceRunner(
         }
       } catch (_: kotlinx.coroutines.CancellationException) {
         // Ktor cancelled the coroutine (client disconnect or withTimeout expired) — clean up
-        ServerLlmModelHelper.stopResponse(model)
+        cancellationActionRef.get()?.invoke()
         channel.close()
         if (!state.inferenceCompleted) {
           // Finalize the log entry (isPending=false, isCancelled, 499) so it doesn't
@@ -1700,13 +1715,9 @@ class InferenceRunner(
           RequestLogStore.unregisterCancellation(logId)
         }
       } finally {
-        // Safety net: guarantee isInferring flag is cleared even if an unexpected
-        // exception bypasses normal completion/cancellation paths. markCompleted
-        // flips the local emitting-done flag; markMetricsCompleted decrements
-        // the ServerMetrics counter idempotently so the "processing" pill clears
-        // even when onInferenceFinished was never reached.
+        // The Gateway operation owns metrics completion so timeout/cancellation cannot
+        // report RUNNING before native cancellation and Conversation recovery settle.
         state.markCompleted()
-        state.markMetricsCompleted()
         heartbeatJob?.cancel()
       }
     }

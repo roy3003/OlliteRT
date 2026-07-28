@@ -761,6 +761,51 @@ class InferenceGatewayTest {
     assertEquals("recovery must not repeat preparation", 0, recoveryCalls.get())
   }
 
+  @Test
+  fun streamingExternalCancellationCancelsOnceAndRecoversBeforeFinish() {
+    val threadPool = Executors.newSingleThreadExecutor()
+    val nativeStarted = CountDownLatch(1)
+    val lifecycleFinished = CountDownLatch(1)
+    val cancelAction = AtomicReference<(() -> Unit)?>(null)
+    val events = java.util.Collections.synchronizedList(mutableListOf<String>())
+
+    try {
+      InferenceGateway.executeStreaming(
+        timeoutSeconds = 30,
+        executor = threadPool,
+        inferenceLock = Any(),
+        operation = object : InferenceGateway.NativeOperation {
+          override fun prepare() = Unit
+          override fun dispatch(
+            onPartial: (String, Boolean, String?) -> Unit,
+            onError: (String) -> Unit,
+          ) {
+            events += "dispatch"
+            nativeStarted.countDown()
+          }
+          override fun cancel() { events += "cancel" }
+          override fun recover() { events += "recover" }
+          override fun finish() {
+            events += "finish"
+            lifecycleFinished.countDown()
+          }
+        },
+        onToken = { _, _, _ -> },
+        onError = {},
+        onCancellationReady = { cancel -> cancelAction.set(cancel) },
+      )
+
+      assertTrue(nativeStarted.await(2, TimeUnit.SECONDS))
+      cancelAction.get()!!.invoke()
+      cancelAction.get()!!.invoke()
+      assertTrue(lifecycleFinished.await(2, TimeUnit.SECONDS))
+      cancelAction.get()!!.invoke()
+      assertEquals(listOf("dispatch", "cancel", "recover", "finish"), events)
+    } finally {
+      threadPool.shutdownNow()
+    }
+  }
+
   // Uses 1s real-time wait — CountDownLatch.await() can't use virtual time (Java blocking primitive).
   @Test
   fun streamingOnInferenceFinishedCalledOnTimeout() {
