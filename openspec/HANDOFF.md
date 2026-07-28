@@ -10,7 +10,7 @@
 
 **Latest code CI evidence:** GitHub Actions `30334882872` passed stableDebug compilation, JVM tests, and Android lint at code commit `0dc2996c`.
 
-This document is the cold-session entry point. Stable requirements live in the two OpenSpec change specs; executable sequencing and checkboxes live in their `tasks.md`. Do not treat this handoff as proof of runtime acceptance.
+This document is the cold-session entry point. Stable user preferences and project guardrails live in [`openspec/USER_PREFERENCES.md`](USER_PREFERENCES.md). Stable behavior requirements live in the two OpenSpec change specs; executable sequencing and checkboxes live in their `tasks.md`. Do not treat this handoff as proof of runtime acceptance.
 
 ## 1. Branch topology
 
