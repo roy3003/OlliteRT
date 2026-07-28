@@ -586,7 +586,7 @@ class InferenceGatewayTest {
                 }
               },
               elapsedMs = { tick() },
-              earlyUnblock = { latch -> externalCancel.set(latch::countDown) },
+              onCancellationReady = { cancel -> externalCancel.set(cancel) },
             ),
           )
         } finally {

@@ -220,7 +220,7 @@ object InferenceGateway {
     onInferenceFinished: () -> Unit = {},
     elapsedMs: () -> Long,
     onCaughtThrowable: ((Throwable) -> Unit)? = null,
-    earlyUnblock: ((CountDownLatch) -> Unit)? = null,
+    onCancellationReady: ((cancel: () -> Unit) -> Unit)? = null,
   ): InferenceResult = execute(
     timeoutSeconds = timeoutSeconds,
     executor = executor,
@@ -241,7 +241,7 @@ object InferenceGateway {
     },
     elapsedMs = elapsedMs,
     onCaughtThrowable = onCaughtThrowable,
-    earlyUnblock = earlyUnblock,
+    onCancellationReady = onCancellationReady,
   )
 
   internal suspend fun execute(
@@ -251,15 +251,19 @@ object InferenceGateway {
     operation: NativeOperation,
     elapsedMs: () -> Long,
     onCaughtThrowable: ((Throwable) -> Unit)? = null,
-    earlyUnblock: ((CountDownLatch) -> Unit)? = null,
+    onCancellationReady: ((cancel: () -> Unit) -> Unit)? = null,
   ): InferenceResult {
     val sb = StringBuilder()
     val thinkingSb = StringBuilder()
     val inferenceLatch = CountDownLatch(1)
     val lifecycleLatch = CountDownLatch(1)
     val execution = InferenceExecution(operation::cancel)
-    earlyUnblock?.invoke(lifecycleLatch)
     val error = AtomicReference<String?>(null)
+    onCancellationReady?.invoke {
+      error.compareAndSet(null, "client_disconnected")
+      inferenceLatch.countDown()
+      execution.cancel()
+    }
     val startMs = elapsedMs()
     var firstTokenMs: Long? = null
 
