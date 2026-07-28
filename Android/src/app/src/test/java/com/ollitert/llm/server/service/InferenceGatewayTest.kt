@@ -545,6 +545,68 @@ class InferenceGatewayTest {
   }
 
   @Test
+  fun externalCancellationUsesExecutionOwner() = runBlocking {
+    val threadPool = Executors.newSingleThreadExecutor()
+    val nativeStarted = CountDownLatch(1)
+    val callerFinished = CountDownLatch(1)
+    val externalCancel = AtomicReference<(() -> Unit)?>(null)
+    val resultRef = AtomicReference<InferenceResult?>(null)
+    val cancelCalls = AtomicInteger(0)
+    val recoverCalls = AtomicInteger(0)
+    val finishCalls = AtomicInteger(0)
+
+    try {
+      launch(Dispatchers.Default) {
+        try {
+          resultRef.set(
+            InferenceGateway.execute(
+              timeoutSeconds = 30,
+              executor = threadPool,
+              inferenceLock = lock,
+              operation = object : InferenceGateway.NativeOperation {
+                override fun prepare() = Unit
+
+                override fun dispatch(
+                  onPartial: (partial: String, done: Boolean, thought: String?) -> Unit,
+                  onError: (message: String) -> Unit,
+                ) {
+                  nativeStarted.countDown()
+                }
+
+                override fun cancel() {
+                  cancelCalls.incrementAndGet()
+                }
+
+                override fun recover() {
+                  recoverCalls.incrementAndGet()
+                }
+
+                override fun finish() {
+                  finishCalls.incrementAndGet()
+                }
+              },
+              elapsedMs = { tick() },
+              earlyUnblock = { latch -> externalCancel.set(latch::countDown) },
+            ),
+          )
+        } finally {
+          callerFinished.countDown()
+        }
+      }
+
+      assertTrue("native inference should start", nativeStarted.await(2, TimeUnit.SECONDS))
+      externalCancel.get()!!.invoke()
+      assertTrue("caller should return after recovery", callerFinished.await(2, TimeUnit.SECONDS))
+      assertEquals("client_disconnected", resultRef.get()?.error)
+      assertEquals("external cancellation must cancel native exactly once", 1, cancelCalls.get())
+      assertEquals("external cancellation must recover exactly once", 1, recoverCalls.get())
+      assertEquals("external cancellation must finish exactly once", 1, finishCalls.get())
+    } finally {
+      threadPool.shutdownNow()
+    }
+  }
+
+  @Test
   fun cancellationTriggersCancelInference() = runBlocking {
     val threadPool = Executors.newSingleThreadExecutor()
     var cancelled = false
