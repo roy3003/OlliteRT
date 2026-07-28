@@ -717,11 +717,11 @@ class KtorServer(
     call.response.headers.append("x-request-id", logId)
     call.respondHttpResponse(response)
 
-    // Reset keep-alive idle timer after successful POST requests (inference routes
-    // that touch the model). Non-inference GET routes don't reset it.
-    if (response.statusCode in 200..299) {
-      modelLifecycle.resetKeepAliveTimer()
-    }
+    // Re-arm the idle timer only after the full response lifecycle completes. For SSE,
+    // respondHttpResponse waits for the writer, so the model remains admitted through native
+    // cancellation/recovery. Error responses re-arm too because selectModel may already have
+    // invalidated the previous timer before later request validation failed.
+    modelLifecycle.resetKeepAliveTimer()
   }
 
   /**

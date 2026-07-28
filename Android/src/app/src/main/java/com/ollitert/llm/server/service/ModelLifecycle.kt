@@ -39,6 +39,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.atomic.AtomicReference
+import ja...[truncated]
 
 /**
  * Manages the LLM model keep-alive lifecycle: idle timeout, auto-unload, auto-reload,
@@ -112,14 +113,17 @@ class ModelLifecycle(
   /** Lifecycle-aware scope for background work (idle unload, cleanup). Cancelled on destroy. */
   private val lifecycleScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-  private val keepAliveRunnable = Runnable { onKeepAliveTimeout() }
+  private val keepAliveGeneration = AtomicLong(0)
+  internal val keepAliveGenerationForTest: Long
+    get() = keepAliveGeneration.get()
+  @Volatile private var scheduledKeepAliveRunnable: Runnable? = null
 
   /**
    * Called when the keep-alive idle timer fires on the main thread.
    * Posts the actual work (lock acquisition + native cleanup) to IO dispatcher to avoid
    * blocking the main thread if the lock is held by a reload (10-60s → ANR risk).
    */
-  private fun onKeepAliveTimeout() {
+  private fun onKeepAliveTimeout(generation: Long) {
     lifecycleScope.launch {
       // Capture the model and null the reference inside the lock (fast — no blocking I/O).
       // This prevents selectModel() from returning a model that we're about to destroy.
@@ -127,9 +131,11 @@ class ModelLifecycle(
       // request threads for seconds while multi-GB native memory is freed.
       data class UnloadInfo(val model: Model, val minutes: Int)
       val info: UnloadInfo = synchronized(keepAliveLock) {
+        if (generation != keepAliveGeneration.get()) return@launch
+        scheduledKeepAliveRunnable = null
         if (ServerMetrics.isInferring.value) {
-          val recheckMs = ServerPrefs.getTimeoutKeepAliveRecheckSeconds(context) * 1000
-          keepAliveHandler.postDelayed(keepAliveRunnable, recheckMs)
+          val recheckMs = ServerPrefs.getTimeoutKeepAliveRecheckSeconds(context) * 1000L
+          scheduleKeepAliveTimerLocked(recheckMs)
           Log.i(TAG, "Keep-alive: model is inferring, will recheck in ${recheckMs / 1000}s")
           return@launch
         }
@@ -154,9 +160,23 @@ class ModelLifecycle(
     }
   }
 
-  /** Cancel any pending keep-alive unload timer. */
+  private fun cancelKeepAliveTimerLocked() {
+    keepAliveGeneration.incrementAndGet()
+    scheduledKeepAliveRunnable?.let { keepAliveHandler.removeCallbacks(it) }
+    scheduledKeepAliveRunnable = null
+  }
+
+  private fun scheduleKeepAliveTimerLocked(delayMs: Long) {
+    cancelKeepAliveTimerLocked()
+    val generation = keepAliveGeneration.get()
+    val runnable = Runnable { onKeepAliveTimeout(generation) }
+    scheduledKeepAliveRunnable = runnable
+    keepAliveHandler.postDelayed(runnable, delayMs)
+  }
+
+  /** Cancel any pending keep-alive unload timer and invalidate already-dispatched callbacks. */
   fun cancelKeepAliveTimer() {
-    keepAliveHandler.removeCallbacks(keepAliveRunnable)
+    synchronized(keepAliveLock) { cancelKeepAliveTimerLocked() }
   }
 
   /** Cancel the lifecycle scope to prevent coroutine leaks when the service is destroyed. */
@@ -170,11 +190,13 @@ class ModelLifecycle(
    * If keep_alive is enabled, schedules a model unload after the configured idle duration.
    */
   fun resetKeepAliveTimer() {
-    cancelKeepAliveTimer()
-    if (!ServerPrefs.isKeepAliveEnabled(context)) return
-    val minutes = ServerPrefs.getKeepAliveMinutes(context)
-    if (minutes <= 0) return
-    keepAliveHandler.postDelayed(keepAliveRunnable, minutes * 60_000L)
+    synchronized(keepAliveLock) {
+      cancelKeepAliveTimerLocked()
+      if (!ServerPrefs.isKeepAliveEnabled(context)) return
+      val minutes = ServerPrefs.getKeepAliveMinutes(context)
+      if (minutes <= 0) return
+      scheduleKeepAliveTimerLocked(minutes * 60_000L)
+    }
   }
 
   // ── Model reload from idle ─────────────────────────────────────────────────
@@ -391,6 +413,7 @@ class ModelLifecycle(
       if (requested.isEmpty() || requested.equals("local", ignoreCase = true) ||
         requested.equals("default", ignoreCase = true)
       ) {
+        cancelKeepAliveTimerLocked()
         return ModelSelection.Ok(active)
       }
       // Check if the requested model matches the currently loaded model. We normalize both
@@ -398,6 +421,7 @@ class ModelLifecycle(
       val requestedKey = BridgeUtils.normalizeModelKey(requested)
       val activeKey = BridgeUtils.normalizeModelKey(active.name)
       if (requestedKey == activeKey) {
+        cancelKeepAliveTimerLocked()
         return ModelSelection.Ok(active)
       }
       // The requested model doesn't match the active model. Return a descriptive error.
