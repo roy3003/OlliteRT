@@ -156,49 +156,90 @@ object InferenceGateway {
     onError: (error: String) -> Unit,
     onInferenceFinished: () -> Unit = {},
     onCaughtThrowable: ((Throwable) -> Unit)? = null,
+  ) = executeStreaming(
+    timeoutSeconds = timeoutSeconds,
+    executor = executor,
+    inferenceLock = inferenceLock,
+    operation = object : NativeOperation {
+      override fun prepare() = resetConversation()
+
+      override fun dispatch(
+        onPartial: (partial: String, done: Boolean, thought: String?) -> Unit,
+        onError: (message: String) -> Unit,
+      ) = runInference(prompt, onPartial, onError)
+
+      override fun cancel() = cancelInference()
+
+      override fun recover() = Unit
+
+      override fun finish() = onInferenceFinished()
+    },
+    onToken = onToken,
+    onError = onError,
+    onCaughtThrowable = onCaughtThrowable,
+  )
+
+  internal fun executeStreaming(
+    timeoutSeconds: Long = STREAMING_TIMEOUT_SECONDS,
+    executor: Executor,
+    inferenceLock: Any,
+    operation: NativeOperation,
+    onToken: (partial: String, done: Boolean, thought: String?) -> Unit,
+    onError: (error: String) -> Unit,
+    onCaughtThrowable: ((Throwable) -> Unit)? = null,
+    onCancellationReady: ((cancel: () -> Unit) -> Unit)? = null,
   ) {
+    val latch = CountDownLatch(1)
+    val errorOccurred = AtomicBoolean(false)
+    val externallyCancelled = AtomicBoolean(false)
+    val execution = InferenceExecution(operation::cancel)
+    onCancellationReady?.invoke {
+      externallyCancelled.set(true)
+      latch.countDown()
+      execution.cancel()
+    }
+
     executor.execute {
       synchronized(inferenceLock) {
-        val latch = CountDownLatch(1)
-        var errorOccurred = false
         try {
-          resetConversation()
-          runInference(
-            prompt,
+          if (!execution.dispatch(operation::prepare)) return@synchronized
+          operation.dispatch(
             { partial, done, thought ->
               onToken(partial, done, thought)
               if (done) latch.countDown()
             },
-            { e ->
-              errorOccurred = true
-              onError(e)
-              try { cancelInference() } catch (t: Throwable) {
-                Log.w(TAG, "cancelInference() failed during error callback cleanup", t)
-              }
+            { error ->
+              if (errorOccurred.compareAndSet(false, true)) onError(error)
               latch.countDown()
             },
           )
+
           val completed = latch.await(timeoutSeconds, TimeUnit.SECONDS)
-          if (!completed && !errorOccurred) {
-            onError("timeout")
-            cancelInference()
-            // Safe: entire block holds inferenceLock, so no concurrent inference can start
-            // between cancelInference() and resetConversation().
-            resetConversation()
+          if (!completed) {
+            if (errorOccurred.compareAndSet(false, true)) onError("timeout")
+            execution.cancel()
+          } else if (errorOccurred.get() || externallyCancelled.get()) {
+            execution.cancel()
           }
+          if (execution.beginRecovery()) operation.recover()
         } catch (t: Throwable) {
-          // Reclaim memory before reporting the error if OOM
           if (t is OutOfMemoryError) System.gc()
           onCaughtThrowable?.invoke(t)
-          if (!errorOccurred) {
+          if (errorOccurred.compareAndSet(false, true)) {
             onError(t.message ?: "unknown_error")
-            try { cancelInference() } catch (t2: Throwable) {
-              Log.w(TAG, "cancelInference() failed during exception recovery", t2)
-            }
           }
+          try {
+            execution.cancel()
+          } catch (cancelError: Throwable) {
+            Log.w(TAG, "Native streaming cancellation failed", cancelError)
+          }
+          if (execution.beginRecovery()) operation.recover()
         } finally {
-          try { onInferenceFinished() } catch (t: Throwable) {
-            Log.w(TAG, "onInferenceFinished() failed", t)
+          execution.finish()
+          try {
+            operation.finish()
+          } catch (t: Throwable) {
+            Log.w(TAG, "Streaming inference finish failed", t)
           }
         }
       }

@@ -1542,64 +1542,81 @@ class InferenceRunner(
       // Launch inference on the executor thread. Callbacks send events into the channel
       // via trySend() — non-blocking from the executor thread's perspective.
       InferenceGateway.executeStreaming(
-        prompt = prompt,
         timeoutSeconds = timeoutSeconds,
         executor = executor,
         inferenceLock = inferenceLock,
-        resetConversation = {
-          if (userCancelFlag.get()) throw java.util.concurrent.CancellationException("cancelled_while_queued")
-          val initErr = reinitIfNeeded(model, supportImage, supportAudio)
-          if (initErr != null) throw RuntimeException("model_init_failed: $initErr")
-          state.markStarted()
-          if (logId != null) RequestLogStore.update(logId) { it.copy(isGenerating = true) }
-          if (configSnapshot != null) {
-            originalConfig = model.configValues
-            model.configValues = configSnapshot
+        operation = object : InferenceGateway.NativeOperation {
+          override fun prepare() {
+            if (userCancelFlag.get()) throw java.util.concurrent.CancellationException("cancelled_while_queued")
+            val initErr = reinitIfNeeded(model, supportImage, supportAudio)
+            if (initErr != null) throw RuntimeException("model_init_failed: $initErr")
+            state.markStarted()
+            if (logId != null) RequestLogStore.update(logId) { it.copy(isGenerating = true) }
+            if (configSnapshot != null) {
+              originalConfig = model.configValues
+              model.configValues = configSnapshot
+            }
+            if (incrementalUserText != null) {
+              // Reuse the live Conversation: SDK has the prior history in its internal
+              // diff state, and runInference will dispatch via Message.user(text) so
+              // only the new turn is prefilled.
+              Log.i(TAG, "INCREMENTAL_REUSE requestId=$requestId model=${model.name} userTextLen=${incrementalUserText.length}")
+            } else {
+              resetConversationForRequest(
+                model = model,
+                supportImage = supportImage,
+                supportAudio = supportAudio,
+                suppressPerModelSystem = suppressPerModelSystem,
+                schemaInjectionProviders = schemaInjectionProviders,
+                schemaInjectionMessages = schemaInjectionMessages,
+              )
+            }
           }
-          if (incrementalUserText != null) {
-            // Reuse the live Conversation: SDK has the prior history in its internal
-            // diff state, and runInference will dispatch via Message.user(text) so
-            // only the new turn is prefilled.
-            Log.i(TAG, "INCREMENTAL_REUSE requestId=$requestId model=${model.name} userTextLen=${incrementalUserText.length}")
-          } else {
-            ServerLlmModelHelper.resetConversation(
-              model,
-              supportImage = supportImage,
-              supportAudio = supportAudio,
-              systemInstruction = if (suppressPerModelSystem) null else buildSystemInstruction(model.prefsKey),
-              tools = schemaInjectionProviders,
-              initialMessages = schemaInjectionMessages,
+
+          override fun dispatch(
+            onPartial: (partial: String, done: Boolean, thought: String?) -> Unit,
+            onError: (message: String) -> Unit,
+          ) {
+            ServerLlmModelHelper.runInference(
+              model = model,
+              input = prompt,
+              resultListener = { partial, done, thought -> onPartial(partial, done, thought) },
+              cleanUpListener = {},
+              onError = onError,
+              images = images,
+              audioClips = audioClips,
+              extraContext = extraContext,
+              incrementalUserText = incrementalUserText,
+              onNativeToolCalls = if (schemaInjectionProviders.isNotEmpty()) { calls ->
+                capturedNativeToolCalls.set(calls)
+              } else null,
             )
           }
+
+          override fun cancel() = ServerLlmModelHelper.stopResponse(model)
+
+          override fun recover() {
+            restoreRequestConfig(model, originalConfig)
+            resetConversationForRequest(
+              model = model,
+              supportImage = supportImage,
+              supportAudio = supportAudio,
+              suppressPerModelSystem = suppressPerModelSystem,
+              schemaInjectionProviders = schemaInjectionProviders,
+              schemaInjectionMessages = schemaInjectionMessages,
+            )
+          }
+
+          override fun finish() {
+            restoreRequestConfig(model, originalConfig)
+            state.markMetricsCompleted()
+          }
         },
-        runInference = { input, onPartial, onError ->
-          ServerLlmModelHelper.runInference(
-            model = model,
-            input = input,
-            resultListener = { partial, done, thought -> onPartial(partial, done, thought) },
-            cleanUpListener = {},
-            onError = onError,
-            images = images,
-            audioClips = audioClips,
-            extraContext = extraContext,
-            incrementalUserText = incrementalUserText,
-            onNativeToolCalls = if (schemaInjectionProviders.isNotEmpty()) { calls ->
-              capturedNativeToolCalls.set(calls)
-            } else null,
-          )
-        },
-        cancelInference = { ServerLlmModelHelper.stopResponse(model) },
         onToken = { partial, done, thought ->
           channel.trySend(StreamEvent.Token(partial, done, thought))
         },
         onError = { error ->
           channel.trySend(StreamEvent.Error(error))
-        },
-        onInferenceFinished = {
-          if (originalConfig != null && model.instance != null) {
-            model.configValues = originalConfig
-          }
-          state.markMetricsCompleted()
         },
         onCaughtThrowable = { t -> emitDebugStackTrace(t, format.sourceTag, model.name) },
       )
