@@ -322,12 +322,14 @@ object InferenceGateway {
       }
     } catch (_: InterruptedException) {
       error.compareAndSet(null, "client_disconnected")
+      inferenceLatch.countDown()
       execution.cancel()
       withContext(NonCancellable + Dispatchers.IO) {
         lifecycleLatch.await(timeoutSeconds + 5, TimeUnit.SECONDS)
       }
     } catch (_: CancellationException) {
       error.compareAndSet(null, "client_disconnected")
+      inferenceLatch.countDown()
       execution.cancel()
       withContext(NonCancellable + Dispatchers.IO) {
         lifecycleLatch.await(timeoutSeconds + 5, TimeUnit.SECONDS)
