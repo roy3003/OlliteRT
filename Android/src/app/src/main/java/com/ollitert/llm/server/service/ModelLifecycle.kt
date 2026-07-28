@@ -39,7 +39,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.atomic.AtomicReference
-import ja...[truncated]
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Manages the LLM model keep-alive lifecycle: idle timeout, auto-unload, auto-reload,
