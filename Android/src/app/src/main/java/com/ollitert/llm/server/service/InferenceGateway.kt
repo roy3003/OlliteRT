@@ -22,7 +22,6 @@ import com.ollitert.llm.server.data.STREAMING_TIMEOUT_SECONDS
 import com.ollitert.llm.server.service.InferenceGateway.executeStreaming
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import java.util.concurrent.CountDownLatch
@@ -324,16 +323,12 @@ object InferenceGateway {
       error.compareAndSet(null, "client_disconnected")
       inferenceLatch.countDown()
       execution.cancel()
-      withContext(NonCancellable + Dispatchers.IO) {
-        lifecycleLatch.await(timeoutSeconds + 5, TimeUnit.SECONDS)
-      }
+      lifecycleLatch.await(timeoutSeconds + 5, TimeUnit.SECONDS)
     } catch (_: CancellationException) {
       error.compareAndSet(null, "client_disconnected")
       inferenceLatch.countDown()
       execution.cancel()
-      withContext(NonCancellable + Dispatchers.IO) {
-        lifecycleLatch.await(timeoutSeconds + 5, TimeUnit.SECONDS)
-      }
+      lifecycleLatch.await(timeoutSeconds + 5, TimeUnit.SECONDS)
     }
     val totalMs = elapsedMs() - startMs
     val thinkingResult = thinkingSb.toString().takeIf { it.isNotEmpty() }
