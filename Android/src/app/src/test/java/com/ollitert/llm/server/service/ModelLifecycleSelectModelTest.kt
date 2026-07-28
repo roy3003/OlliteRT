@@ -93,4 +93,15 @@ class ModelLifecycleSelectModelTest {
     assertEquals(503, (result as ModelLifecycle.ModelSelection.Error).statusCode)
   }
 
+  @Test
+  fun selectModel_invalidatesPendingKeepAliveGeneration() {
+    lifecycle.defaultModel = testModel
+    val before = lifecycle.keepAliveGenerationForTest
+
+    val result = lifecycle.selectModel(null)
+
+    assertTrue(result is ModelLifecycle.ModelSelection.Ok)
+    assertTrue(lifecycle.keepAliveGenerationForTest > before)
+  }
+
 }
