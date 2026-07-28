@@ -738,6 +738,29 @@ class InferenceGatewayTest {
     assertTrue("onInferenceFinished must be called on exception path", finishedCalled)
   }
 
+  @Test
+  fun streamingTimeoutPreparesInferenceOnlyOnce() {
+    val preparationCalls = AtomicInteger(0)
+    val recoveryCalls = AtomicInteger(0)
+
+    InferenceGateway.executeStreaming(
+      prompt = "p",
+      timeoutSeconds = 0,
+      executor = directExecutor,
+      inferenceLock = lock,
+      resetConversation = {
+        if (preparationCalls.incrementAndGet() > 1) recoveryCalls.incrementAndGet()
+      },
+      runInference = { _, _, _ -> },
+      cancelInference = {},
+      onToken = { _, _, _ -> },
+      onError = {},
+    )
+
+    assertEquals("streaming preparation must run once", 1, preparationCalls.get())
+    assertEquals("recovery must not repeat preparation", 0, recoveryCalls.get())
+  }
+
   // Uses 1s real-time wait — CountDownLatch.await() can't use virtual time (Java blocking primitive).
   @Test
   fun streamingOnInferenceFinishedCalledOnTimeout() {
