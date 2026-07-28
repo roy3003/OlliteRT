@@ -119,11 +119,11 @@ PROCESSING SHALL use this static four-line centered layout:
        proc
 ```
 
-Labels SHALL be subdued gray and values high-contrast white. `req` SHALL read `ServerMetrics.requestCount`, meaning requests for which a request ID was assigned; it SHALL NOT be described as successful completions. RUNNING `err` SHALL read `ServerMetrics.errorCount`. PROCESSING SHALL NOT show historical TTFB or latency.
+Labels and values SHALL use App UI pure black `#000000`. `req` SHALL read `ServerMetrics.requestCount`, meaning requests for which a request ID was assigned; it SHALL NOT be described as successful completions. RUNNING `err` SHALL read `ServerMetrics.errorCount`. PROCESSING SHALL NOT show historical TTFB or latency.
 
 Counts from `0..99,999` SHALL use exact integers with grouping separators (`999`, `1,000`, `12,345`, `99,999`). Counts from `100,000` onward SHALL show `99,999+`. Digits SHALL use stable width.
 
-The controller SHALL record a local monotonic start when observed `isInferring` changes false→true and clear it on true→false or dispose. Elapsed SHALL format as `0s..59s`, `M:SS` through `99:59`, and `99m+` from 100 minutes onward. This SHALL NOT modify inference/token callbacks.
+The controller SHALL record a local monotonic start for the current inference sequence and clear it when inference ends or the controller is disposed. Each new inference sequence SHALL reset elapsed to zero. Elapsed SHALL format as an exact integer number of seconds from `0` through `9999`, and `9999+` from 10,000 seconds onward. The numeric value SHALL remain centered; the renderer SHALL draw a smaller `s` suffix to its right without including the suffix in formatter output. This SHALL NOT modify inference/token callbacks.
 
 #### Scenario: Static metrics use truthful bounded formats
 
@@ -147,7 +147,7 @@ The controller SHALL record a local monotonic start when observed `isInferring` 
 
 ### Requirement: Hex renderer and touch bounds
 
-The View SHALL draw a point-top hexagon inspired by `ic_brand`, with distinct readable dark semantic backgrounds/borders for Running and Processing. Both states SHALL share the same four-line geometry and font budget while rendering their state-specific bottom metric.
+The View SHALL draw a point-top hexagon inspired by `ic_brand`. RUNNING SHALL fill the full hexagon with `#55D68B`; PROCESSING SHALL fill it with `#FFB74D`. Both states SHALL use pure black `#000000` text and share the same four-line geometry and font budget while rendering their state-specific bottom metric.
 
 The Android overlay input window SHALL be a tight rectangle around the hexagon and at least 48dp. Transparent corners SHALL NOT promise touch pass-through.
 

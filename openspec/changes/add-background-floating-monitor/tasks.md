@@ -1,75 +1,59 @@
 # Tasks: Minimal Background Floating Monitor
 
-Implementation follows the local ticket order under `.scratch/add-background-floating-monitor/issues/` and uses one RED→GREEN→REFACTOR cycle at a time.
+**Implementation baseline:** `8ab20cb0ac43a825465752694b59f0e3907ac3e3`
 
-## 1. Establish attributable baseline
+The feature is implemented and CI-green. The remaining work is bounded review cleanup, documentation alignment, and complete device acceptance; it is not a redesign.
 
-- [ ] Record branch, HEAD, working tree, Java/Gradle environment, command, complete output, and exit code.
-- [ ] Prefer the local command `./gradlew :app:compileDevDebugKotlin :app:testDevDebugUnitTest --no-daemon --console=plain` from `Android/src` when a JDK/SDK exists.
-- [ ] When the local Android toolchain is unavailable, use the repository's `jvm-tests.yml` workflow on the exact WIP branch; retain run URL/ID, commit SHA, and failing step/log.
-- [ ] Classify any existing failure before feature tests; do not repair unrelated baseline issues without approval.
+## Completed implementation
 
-## 2. State and lifecycle seams
+- [x] Establish attributable RED → GREEN evidence through the repository GitHub Actions workflow when no local JDK is available.
+- [x] Implement pure `Hidden | Running | Processing` state and display mapping.
+- [x] Show only for saved-enabled, permitted, background, live-service, RUNNING state.
+- [x] Add persisted setting, default Off behavior, search/save/reset/change-detection wiring, and overlay permission flow.
+- [x] Add point-top hexagon renderer, stable-width exact request/error counts, drag, tap-to-open, normalized persistence, clamping, and reset.
+- [x] Isolate controller scope and WindowManager failures from `ServerService` and LLM/Ktor lifecycle.
+- [x] Dispose best-effort before existing Service model cleanup.
+- [x] Keep the existing Service and notification; do not add model/Ktor/token-progress/network polling behavior.
+- [x] Use full fill `#55D68B` for RUNNING and `#FFB74D` for PROCESSING with pure black text.
+- [x] Render processing time as centered plain seconds `0..9999`, then `9999+`, with a smaller separate `s` suffix and per-request sequence reset.
+- [x] GitHub Actions `30265814145`: compile, JVM tests, and Android lint passed for the floating-monitor baseline.
 
-- [ ] RED: test RUNNING/idle -> Running, RUNNING/inferring -> Processing, all other server states -> Hidden.
-- [ ] Implement `Hidden | Running | Processing` pure state model.
-- [ ] RED: test Running -> req/err and Processing -> req/proc-elapsed display mapping.
-- [ ] RED: test visibility combinations for setting snapshot, permission, suppression, app foreground, service alive, and state.
-- [ ] Convert `OlliteRTLifecycleProvider` to StateFlow written from MainActivity ON_START/ON_STOP.
-- [ ] Remove old NavGraph/ViewModel ON_PAUSE/ON_RESUME writers and migrate synchronous readers such as DownloadRepository to `.value`.
-- [ ] Do not add Loading/Error/Stop or long-press branches.
+## Documentation alignment
 
-## 3. Settings, persistence, and permission
+- [x] Backfill proposal, design, and spec from stale `M:SS` / dark-background wording to the implemented plain-seconds visual contract.
+- [x] Replace the all-unchecked historical task list with implemented-versus-remaining status.
 
-- [ ] RED: test `ServerPrefs` default false, save/reload, and reset-to-default behavior.
-- [ ] Wire metadata definitions, allSettingDefs/allCardDefs, search, typed ViewModel accessors, save/reset, and change detection.
-- [ ] Add Floating monitor UI to the existing server behavior/Auto-Launch area.
-- [ ] Show On + `Permission required` + explicit Grant action when permission is absent.
-- [ ] Add Manifest overlay permission and Activity Result flow.
-- [ ] Set shared suppression before launching system settings; recheck permission before clearing it on result/resume.
-- [ ] Do not launch permission settings for an unsaved draft toggle.
+## Remaining review findings
 
-## 4. Renderer and formatters
+Implement each as a focused RED → minimal GREEN cycle.
 
-- [ ] RED: exact count tests for `0`, `999`, `1,000`, `12,345`, `99,999`, `100,000 -> 99,999+`, and `Long.MAX_VALUE -> 99,999+`.
-- [ ] RED: elapsed tests for `0s`, `59s`, `60s -> 1:00`, `5999s -> 99:59`, and `6000s -> 99m+`.
-- [ ] Draw a point-top hexagon with distinct Running/Processing semantic palettes.
-- [ ] Use identical four-line geometry: Running req/request/error/err; Processing req/request/elapsed/proc.
-- [ ] Use stable-width numerals; do not implement K/M formatting or carousel animation.
-- [ ] Add a tight rectangular hit target of at least 48dp; do not promise transparent-corner pass-through.
+### 1. Saved permission intent
 
-## 5. Controller and Service integration
+- [ ] RED: an unsaved draft toggle SHALL NOT expose or launch overlay permission settings.
+- [ ] Gate the permission-required row and Grant action on the saved setting value, not the draft value.
 
-- [ ] RED: fake-clock processing transition tests and fake-WindowManager attach/remove/idempotence/failure tests.
-- [ ] Implement independent `SupervisorJob + Dispatchers.Main.immediate` controller scope.
-- [ ] Subscribe only to existing status/isInferring/requestCount/errorCount plus lifecycle/permission/setting inputs.
-- [ ] Record controller-local monotonic processing start on false→true and clear on true→false/dispose; do not modify inference callbacks.
-- [ ] Make state updates immediate and coalesce visible metrics with a single one-second ticker; hidden state has no ticker.
-- [ ] Create controller via an application EntryPoint if needed; keep construction outside the Service critical LLM try/catch.
-- [ ] Catch all overlay failures locally; never call/cause `stopSelf()` and never cancel/block Service scope.
-- [ ] Recheck permission on state events and visible ticks; revoke/removal bound is 1s while visible.
-- [ ] Best-effort dispose at the start of `onDestroy()` before existing LLM cleanup.
-- [ ] Serialize all WindowManager calls on Main and reconcile attached state after exceptions.
-- [ ] Do not add a second Service, notification, polling, `/proc`, network scan, or model task.
+### 2. Restart-required affordance
 
-## 6. Tap, drag, and safe position
+- [ ] Add concise settings copy explaining that enabling the monitor takes effect after the running server is restarted.
+- [ ] Keep hot application to an already-running `ServerService` out of scope.
 
-- [ ] RED: gesture tests distinguishing tap from drag threshold and preventing drag-end launch.
-- [ ] Tap best-effort detaches, then opens MainActivity with PendingIntent or NEW_TASK|SINGLE_TOP fallback.
-- [ ] RED: normalized-coordinate and safe-clamping tests for missing/out-of-range values, rotation, insets, cutout, split-screen, and resolution changes.
-- [ ] Clamp before saving normalized X/Y at drag end.
-- [ ] Reconstruct and re-clamp on attach/configuration change.
-- [ ] Reset position takes effect on the next attach without restarting Service.
-- [ ] Do not implement long press or swipe.
+### 3. Tap suppression cannot latch permanently
 
-## 7. Verification and review
+- [ ] RED: a reported-successful Activity launch that never reaches foreground SHALL NOT hide the monitor indefinitely.
+- [ ] Replace the synthetic `appIsForeground || tapSuppressed` encoding with an explicit bounded suppression input/state.
+- [ ] Preserve detach-before-launch and PendingIntent/direct fallback behavior.
 
-- [ ] `git diff --check`.
-- [ ] Re-run target compile/unit command with complete logs.
-- [ ] JVM: state/display, visibility, five-digit counts, elapsed, 1s coalescing, Window lifecycle, gestures, position, and isolation.
-- [ ] Android: preference wiring and permission Activity Result/suppression.
-- [ ] Run `gm-code-review` against fixed base/head on Standards and Spec axes.
-- [ ] Turn accepted findings into RED tests before fixes.
-- [ ] Real device: grant/deny/revoke, system-settings suppression, Running/Processing, foreground/non-running hiding, tap, drag, rotation/insets, reset, Service stop, and a real inference request.
-- [ ] Audit no second Service/notification, handoff, Loading/Error/Stop UI, long press, polling, token instrumentation, or model/Ktor behavior change.
-- [ ] Do not archive OpenSpec until all required evidence is complete.
+### 4. Avoid perpetual idle polling
+
+- [ ] RED: a visible idle RUNNING monitor has no perpetual 1 Hz reconciliation loop.
+- [ ] Make state and metric changes event-driven; throttle/coalesce changing visible values to at most once per second.
+- [ ] Keep processing elapsed updates at 1 Hz while visible and stop all ticker work while hidden/disposed.
+- [ ] Preserve bounded retry after WindowManager failures and permission-revocation detection.
+
+## Final verification
+
+- [ ] Run `git diff --check` and focused compile/JVM/lint on the exact final HEAD.
+- [ ] Re-run dual-axis review against the fixed monitor baseline.
+- [ ] Real device: saved/draft permission behavior, grant/deny/revoke, restart hint, RUNNING/PROCESSING, foreground/non-running hiding, tap failure recovery, drag, rotation/insets, reset, Service stop, and a real inference request.
+- [ ] Confirm overlay failures never stop the server and idle RUNNING does not wake at 1 Hz.
+- [ ] Do not archive the OpenSpec change until all required evidence is complete.

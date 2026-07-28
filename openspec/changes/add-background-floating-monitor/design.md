@@ -95,18 +95,17 @@ Stable-width numerals avoid horizontal jitter. No K/M/Million format exists.
 Controller observes `isInferring` from Service start. A false→true transition records injected monotonic time locally; true→false/dispose clears it. Elapsed formatter:
 
 ```text
-0..59 seconds    -> Ns
-60s..99:59       -> M:SS
->=100 minutes    -> 99m+
+0..9,999 seconds -> exact integer without inline suffix
+>=10,000 seconds -> 9999+
 ```
 
-No historical TTFB, latency, token callback, or progress sampling is used.
+The renderer draws a smaller `s` to the right of the numeric text while keeping the numeric value itself centered. `ServerMetrics.inferenceSequence` starts a new local interval for each request, so elapsed resets even across adjacent inferences. No historical TTFB, latency, token callback, or progress sampling is used.
 
 Status/visibility updates render immediately. Metric values are snapshotted and coalesced by a visible one-second tick; hidden/disposed state has no tick. A draw is skipped if formatted visible output did not change.
 
 ## Renderer and Input
 
-A native Canvas View draws the point-top hexagon. Running and Processing use distinct dark semantic palettes with readable border and white values; labels are subdued gray. The actual overlay window is a tight rectangular hit target at least 48dp, because transparent hex corners cannot reliably pass input through.
+A native Canvas View draws the point-top hexagon. Running fills the full hexagon with `#55D68B`; Processing fills it with `#FFB74D`. Labels, values, and the small seconds suffix use App UI pure black `#000000`. The actual overlay window is a tight rectangular hit target at least 48dp, because transparent hex corners cannot reliably pass input through.
 
 Tap is distinguished from drag by movement threshold. Tap best-effort detaches before sending a PendingIntent to MainActivity; fallback Intent uses NEW_TASK|SINGLE_TOP. Send failure runs visibility reconciliation. Drag only moves and saves position; there is no long press or swipe.
 

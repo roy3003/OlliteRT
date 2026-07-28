@@ -38,7 +38,7 @@ RUNNING                 PROCESSING
     err                     proc
 ```
 
-Counts are exact from 0 through 99,999 and fixed at `99,999+` from 100,000 onward. Processing elapsed uses `0s..59s`, `M:SS` through `99:59`, and `99m+` thereafter.
+Counts are exact from 0 through 99,999 and fixed at `99,999+` from 100,000 onward. Processing elapsed remains a plain integer number of seconds from `0` through `9999`, then `9999+`. The renderer draws a smaller `s` suffix to the right without shifting the numeric value from the center, and each new inference sequence resets elapsed to zero.
 
 ## Scope and Impact
 

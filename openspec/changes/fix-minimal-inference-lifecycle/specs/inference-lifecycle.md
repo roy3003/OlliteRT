@@ -10,6 +10,10 @@ This change fixes request timeout and cancellation without rewriting normal infe
 
 Keep-alive timeout callbacks SHALL NOT unload or clean up a model while any request admission is active. Cancelling a Handler callback SHALL also invalidate a timeout already dispatched to background execution. Metrics MAY report processing state but SHALL NOT act as the model admission lock.
 
+When `rejectWhenBusy` is enabled, admission SHALL be an atomic try-acquire operation: a request is accepted only when no earlier request owns admission. When it is disabled, requests MAY acquire admission and queue. An admitted request therefore counts as busy before native generation starts; `ServerMetrics.isInferring` remains observability only.
+
+The admission count SHALL be checked while holding `keepAliveLock`, in the same critical section that clears and cleans up the active model. The lock order SHALL remain `keepAliveLock` → whole-generation `inferenceLock` → `InferenceExecution` state monitor. The admission count is not an additional lock.
+
 #### Scenario: Idle timeout races with an admitted request
 
 - GIVEN an idle-unload timeout is pending or already dispatched
@@ -22,6 +26,10 @@ Keep-alive timeout callbacks SHALL NOT unload or clean up a model while any requ
 Each request SHALL create one `InferenceGateway` execution owner. The owner SHALL serialize request phases and the synchronous native dispatch/cancel commit boundary. Runner, endpoint, Logs UI, SSE writer, metrics, and cache code MAY provide operations or cancellation signals but SHALL NOT independently own native lifecycle state.
 
 The execution SHALL progress through equivalent states for queued, preparing, dispatching/running, cancelling/settling, and finished behavior. The state monitor SHALL be held only around short phase transitions and native dispatch/cancel commit boundaries, not for the full generation duration.
+
+Execution phase plus its phase-owned terminal outcome SHALL be the sole authority for classifying success, timeout, cancellation, disconnect, stop sequence, or error. Error text SHALL be owned by or derived from the terminal transition rather than raced independently. Native-completion and lifecycle-finished wait signals MAY remain because LiteRT-LM exposes callbacks without a request handle, but those signals SHALL be completed only by owner transitions and SHALL NOT independently choose terminal outcome.
+
+Native dispatch and native cancellation are external side effects and SHALL be linearized under the execution state monitor. `cancelNative()` MAY run while that monitor is held only while the native adapter acquires neither `keepAliveLock` nor `inferenceLock`; future changes SHALL preserve this acyclic ordering.
 
 #### Scenario: A request dispatches normally
 
@@ -80,6 +88,8 @@ The caller SHALL await lifecycle settlement without a secondary `timeout + grace
 Blocking and streaming inference SHALL use the same request execution owner and native operation boundaries for prepare, dispatch, cancel, recover, and finish. They SHALL retain their existing output-specific behavior, including token/thinking collection, tool handling, stop-sequence processing, response shaping, and SSE wire format.
 
 The SSE body SHALL remain cancellable by its parent Ktor request. `NonCancellable` MAY be used only for bounded cleanup that signals cancellation and awaits owner settlement; it SHALL NOT wrap the full streaming writer lifecycle.
+
+The separate audio-transcription `NonCancellable` path is deliberately outside this lifecycle delta. It SHALL be changed only if a focused audio cancellation RED demonstrates that the same ownership failure applies; chat/SSE work SHALL NOT silently broaden into audio lifecycle changes.
 
 #### Scenario: Streaming client disconnects
 
