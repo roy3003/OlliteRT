@@ -203,17 +203,20 @@ object InferenceGateway {
     executor.execute {
       synchronized(inferenceLock) {
         try {
-          if (!execution.dispatch(operation::prepare)) return@synchronized
-          operation.dispatch(
-            { partial, done, thought ->
-              onToken(partial, done, thought)
-              if (done) latch.countDown()
-            },
-            { error ->
-              if (errorOccurred.compareAndSet(false, true)) onError(error)
-              latch.countDown()
-            },
-          )
+          if (!execution.beginPreparation()) return@synchronized
+          operation.prepare()
+          if (!execution.dispatch {
+              operation.dispatch(
+                { partial, done, thought ->
+                  onToken(partial, done, thought)
+                  if (done) latch.countDown()
+                },
+                { error ->
+                  if (errorOccurred.compareAndSet(false, true)) onError(error)
+                  latch.countDown()
+                },
+              )
+            }) return@synchronized
 
           val completed = latch.await(timeoutSeconds, TimeUnit.SECONDS)
           if (!completed) {
