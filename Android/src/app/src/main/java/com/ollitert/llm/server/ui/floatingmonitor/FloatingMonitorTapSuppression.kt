@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 internal class FloatingMonitorTapSuppression(
   private val scope: CoroutineScope,
   private val timeoutMillis: Long,
+  private val onReleased: () -> Unit = {},
 ) {
   private val _active = MutableStateFlow(false)
   val active: StateFlow<Boolean> = _active.asStateFlow()
@@ -42,18 +43,24 @@ internal class FloatingMonitorTapSuppression(
     _active.value = true
     releaseJob = scope.launch {
       delay(timeoutMillis)
+      if (!_active.value) return@launch
       _active.value = false
       releaseJob = null
+      onReleased()
     }
   }
 
   fun clear() {
+    val wasActive = _active.value
     releaseJob?.cancel()
     releaseJob = null
     _active.value = false
+    if (wasActive) onReleased()
   }
 
   fun dispose() {
-    clear()
+    releaseJob?.cancel()
+    releaseJob = null
+    _active.value = false
   }
 }
