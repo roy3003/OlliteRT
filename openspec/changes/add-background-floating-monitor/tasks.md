@@ -34,8 +34,8 @@ Implement each as a focused RED → minimal GREEN cycle.
 
 ### 2. Restart-required affordance
 
-- [ ] Add concise settings copy explaining that enabling the monitor takes effect after the running server is restarted.
-- [ ] Keep hot application to an already-running `ServerService` out of scope.
+- [x] Add concise settings copy explaining that enabling the monitor takes effect after the running server is restarted.
+- [x] Keep hot application to an already-running `ServerService` out of scope.
 
 ### 3. Tap suppression cannot latch permanently
 

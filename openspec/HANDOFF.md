@@ -6,9 +6,9 @@
 
 **Fixed baseline:** `8ab20cb0ac43a825465752694b59f0e3907ac3e3`
 
-**Latest code HEAD before this handoff update:** `9372ebc164ab6b5821ed59ca417d705c284c48e9`
+**Latest code HEAD before this handoff update:** `007ecf90051259e3d57ec0542aa2f501bb500aa9`
 
-**Latest code CI evidence:** GitHub Actions `30472036614` passed stableDebug compilation, JVM tests, and Android lint at code commit `9372ebc1`.
+**Latest code CI evidence:** GitHub Actions `30475002423` passed stableDebug compilation, JVM tests, and Android lint at code commit `007ecf90`.
 
 This document is the cold-session entry point. Stable user preferences and project guardrails live in [`openspec/USER_PREFERENCES.md`](USER_PREFERENCES.md). Stable behavior requirements live in the two OpenSpec change specs; executable sequencing and checkboxes live in their `tasks.md`. Do not treat this handoff as proof of runtime acceptance.
 
@@ -20,7 +20,7 @@ main (f4f7bf9)
        ├─ completed floating-monitor implementation
        └─ fix/minimal-inference-lifecycle
             ├─ lifecycle code through 0dc2996c
-            ├─ floating-monitor saved-intent cleanup through 9372ebc1
+            ├─ floating-monitor saved-intent and restart-copy cleanup through 007ecf90
             └─ tracked lifecycle documents through 79a84d53
 ```
 
@@ -147,13 +147,14 @@ The monitor implementation is functionally complete and was CI-green at baseline
 - elapsed resets for every inference sequence;
 - original foreground-service notification remains unchanged.
 
-Three bounded review findings remain:
+Two bounded review findings remain:
 
-1. enabling requires server restart but the UI does not say so;
-2. tap suppression may remain latched if Android reports launch success but no Activity reaches foreground;
-3. idle visible RUNNING currently polls at 1 Hz instead of remaining event-driven.
+1. tap suppression may remain latched if Android reports launch success but no Activity reaches foreground;
+2. idle visible RUNNING currently polls at 1 Hz instead of remaining event-driven.
 
 The saved-intent cleanup is complete: an unsaved Floating monitor draft no longer exposes the permission-required row or Grant action. RED commit `9290150b` failed in JVM-test compilation on the missing gate, and GREEN commit `9372ebc1` passed compile, JVM tests, and lint in Actions run `30472036614`.
+
+The restart-required affordance is complete: the Floating monitor description now says to restart the server after saving. RED commit `92e8629e` failed only the new resource-contract test, and GREEN commit `007ecf90` passed compile, 1,355 JVM tests, and lint in Actions run `30475002423`. Hot application to an already-running `ServerService` remains deliberately out of scope.
 
 These are cleanup tasks in `openspec/changes/add-background-floating-monitor/tasks.md`; they do not justify a redesign or a second service.
 
@@ -174,4 +175,4 @@ These are cleanup tasks in `openspec/changes/add-background-floating-monitor/tas
 - No APK containing the lifecycle fixes or latest monitor cleanup has been installed on the device.
 - Device currently runs `0.9.6-dev.105` until a later signed APK is explicitly approved and manually installed.
 
-**Next action:** continue the floating-monitor task list with the restart-required settings affordance. Lifecycle Gate 0 remains paused until the user returns to inference lifecycle work.
+**Next action:** continue the floating-monitor task list with bounded tap-suppression recovery. Lifecycle Gate 0 remains paused until the user returns to inference lifecycle work.
