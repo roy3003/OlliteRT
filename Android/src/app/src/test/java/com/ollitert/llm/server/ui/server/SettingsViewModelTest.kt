@@ -341,6 +341,18 @@ class SettingsViewModelTest {
   }
 
   @Test
+  fun unsavedFloatingMonitorDraftDoesNotExposePermissionAction() {
+    vm.floatingMonitorEntry.update(true)
+
+    assertFalse(vm.shouldShowFloatingMonitorPermissionAction(overlayPermissionGranted = false))
+
+    every { ServerPrefs.isLogPersistenceEnabled(any()) } returns false
+    vm.save(ServerStatus.STOPPED)
+
+    assertTrue(vm.shouldShowFloatingMonitorPermissionAction(overlayPermissionGranted = false))
+  }
+
+  @Test
   fun floatingMonitorIntentReloadsFromSharedPreferences() {
     every { ServerPrefs.isFloatingMonitorEnabled(any()) } returns true
 
