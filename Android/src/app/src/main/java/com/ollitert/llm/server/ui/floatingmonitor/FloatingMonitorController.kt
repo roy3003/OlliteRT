@@ -48,11 +48,11 @@ class FloatingMonitorController(
   private val appContext = context.applicationContext
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private val elapsedTracker = ProcessingElapsedTracker(SystemClock::elapsedRealtime)
+  private val tapSuppression = FloatingMonitorTapSuppression(scope, TAP_SUPPRESSION_TIMEOUT_MILLIS)
   private lateinit var reconciler: FloatingMonitorWindowReconciler
   private val window = AndroidFloatingMonitorWindow(appContext) { handleTap() }
   private var monitorJob: Job? = null
   private var disposed = false
-  private var tapSuppressed = false
 
   init {
     reconciler = FloatingMonitorWindowReconciler(window) { failure ->
@@ -64,7 +64,7 @@ class FloatingMonitorController(
     if (disposed || monitorJob != null) return
     monitorJob = scope.launch {
       try {
-        combine(
+        val coreInputs = combine(
           ServerMetrics.status,
           ServerMetrics.isInferring,
           ServerMetrics.inferenceSequence,
@@ -77,7 +77,11 @@ class FloatingMonitorController(
             inferenceSequence = inferenceSequence,
             appIsForeground = appIsForeground,
             permissionFlowInProgress = permissionFlowInProgress,
+            launchSuppressionActive = false,
           )
+        }
+        combine(coreInputs, tapSuppression.active) { input, launchSuppressionActive ->
+          input.copy(launchSuppressionActive = launchSuppressionActive)
         }.collectLatest { input ->
           val retryBudget = FloatingMonitorRetryBudget(MAX_CONSECUTIVE_WINDOW_FAILURES)
           elapsedTracker.update(input.isInferring, input.inferenceSequence)
@@ -102,13 +106,14 @@ class FloatingMonitorController(
     disposed = true
     monitorJob?.cancel()
     monitorJob = null
+    tapSuppression.dispose()
     scope.cancel()
     elapsedTracker.dispose()
     reconciler.dispose()
   }
 
   private fun render(input: CoreInput, retryBudget: FloatingMonitorRetryBudget): Boolean {
-    if (input.appIsForeground) tapSuppressed = false
+    if (input.appIsForeground) tapSuppression.clear()
 
     val visualState = deriveFloatingMonitorVisualState(
       status = input.status,
@@ -124,7 +129,8 @@ class FloatingMonitorController(
       settingEnabled = settingEnabled,
       overlayPermissionGranted = permissionGranted,
       permissionFlowInProgress = input.permissionFlowInProgress,
-      appIsForeground = input.appIsForeground || tapSuppressed,
+      appIsForeground = input.appIsForeground,
+      launchSuppressionActive = input.launchSuppressionActive,
       serviceIsAlive = !disposed,
       visualState = visualState,
     )
@@ -153,9 +159,9 @@ class FloatingMonitorController(
 
   private fun handleTap() {
     if (disposed) return
-    tapSuppressed = true
+    tapSuppression.suppress()
     reconciler.reconcile(null)
-    if (!openMainActivity()) tapSuppressed = false
+    if (!openMainActivity()) tapSuppression.clear()
   }
 
   private fun openMainActivity(): Boolean {
@@ -191,11 +197,13 @@ class FloatingMonitorController(
     val inferenceSequence: Long,
     val appIsForeground: Boolean,
     val permissionFlowInProgress: Boolean,
+    val launchSuppressionActive: Boolean,
   )
 
   private companion object {
     const val TAG = "OlliteRT.FloatMonitor"
     const val METRIC_REFRESH_MILLIS = 1_000L
+    const val TAP_SUPPRESSION_TIMEOUT_MILLIS = 3_000L
     const val MAX_CONSECUTIVE_WINDOW_FAILURES = 3
     const val OPEN_ACTIVITY_REQUEST_CODE = 72
   }

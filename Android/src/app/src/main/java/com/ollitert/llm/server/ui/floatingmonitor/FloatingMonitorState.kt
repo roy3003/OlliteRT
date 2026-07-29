@@ -39,6 +39,7 @@ fun shouldShowFloatingMonitor(
   overlayPermissionGranted: Boolean,
   permissionFlowInProgress: Boolean,
   appIsForeground: Boolean,
+  launchSuppressionActive: Boolean,
   serviceIsAlive: Boolean,
   visualState: FloatingMonitorVisualState,
 ): Boolean =
@@ -46,5 +47,6 @@ fun shouldShowFloatingMonitor(
     overlayPermissionGranted &&
     !permissionFlowInProgress &&
     !appIsForeground &&
+    !launchSuppressionActive &&
     serviceIsAlive &&
     visualState != FloatingMonitorVisualState.Hidden
