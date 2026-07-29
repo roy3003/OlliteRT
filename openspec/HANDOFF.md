@@ -6,9 +6,9 @@
 
 **Fixed baseline:** `8ab20cb0ac43a825465752694b59f0e3907ac3e3`
 
-**Latest code HEAD before this handoff update:** `007ecf90051259e3d57ec0542aa2f501bb500aa9`
+**Latest code HEAD before this handoff update:** `93486e9c1cfecd5971fb7865be9da90a9e49662d`
 
-**Latest code CI evidence:** GitHub Actions `30475002423` passed stableDebug compilation, JVM tests, and Android lint at code commit `007ecf90`.
+**Latest code CI evidence:** GitHub Actions `30478480764` passed stableDebug compilation, JVM tests, and Android lint at code commit `93486e9c`.
 
 This document is the cold-session entry point. Stable user preferences and project guardrails live in [`openspec/USER_PREFERENCES.md`](USER_PREFERENCES.md). Stable behavior requirements live in the two OpenSpec change specs; executable sequencing and checkboxes live in their `tasks.md`. Do not treat this handoff as proof of runtime acceptance.
 
@@ -20,7 +20,7 @@ main (f4f7bf9)
        ├─ completed floating-monitor implementation
        └─ fix/minimal-inference-lifecycle
             ├─ lifecycle code through 0dc2996c
-            ├─ floating-monitor saved-intent and restart-copy cleanup through 007ecf90
+            ├─ floating-monitor saved-intent, restart-copy, and bounded tap-recovery cleanup through 93486e9c
             └─ tracked lifecycle documents through 79a84d53
 ```
 
@@ -147,14 +147,19 @@ The monitor implementation is functionally complete and was CI-green at baseline
 - elapsed resets for every inference sequence;
 - original foreground-service notification remains unchanged.
 
-Two bounded review findings remain:
+One bounded review finding remains:
 
-1. tap suppression may remain latched if Android reports launch success but no Activity reaches foreground;
-2. idle visible RUNNING currently polls at 1 Hz instead of remaining event-driven.
+1. idle visible RUNNING currently polls at 1 Hz instead of remaining event-driven.
 
 The saved-intent cleanup is complete: an unsaved Floating monitor draft no longer exposes the permission-required row or Grant action. RED commit `9290150b` failed in JVM-test compilation on the missing gate, and GREEN commit `9372ebc1` passed compile, JVM tests, and lint in Actions run `30472036614`.
 
 The restart-required affordance is complete: the Floating monitor description now says to restart the server after saving. RED commit `92e8629e` failed only the new resource-contract test, and GREEN commit `007ecf90` passed compile, 1,355 JVM tests, and lint in Actions run `30475002423`. Hot application to an already-running `ServerService` remains deliberately out of scope.
+
+Bounded tap recovery is complete: a reported-successful Activity launch suppresses the detached monitor for at most three seconds; total launch failure and confirmed foreground transition release suppression immediately; disposal cancels pending recovery. Detach-before-launch and the PendingIntent/direct fallback are preserved. Integration RED `75e69f15` failed on the missing coordinator in Actions `30477061732`; GREEN `93486e9c` passed compile/JVM/lint in Actions `30478480764`. Focused follow-up review closed the earlier StateFlow-conflation and insufficient-integration-evidence findings with no new blocker.
+
+Device evidence on 2026-07-30: persistently signed `0.9.6-dev.106` (`versionCode=18`) was installed in place over dev.105 with matching v2 signer certificate and preserved overlay permission. The user observed a real Gemma-4-E4B-it request complete normally: PROCESSING showed the orange timer, completion returned to green RUNNING, and a subsequent request switched back to PROCESSING. This is a valid request/monitor smoke, not the still-paused lifecycle timeout Gate 0.
+
+The repeated `Sampler params may be ignored on GPU backend` warning is not new to dev.106: both dev.105's baseline and dev.106 contain commit `aeb33721`. It is emitted by OlliteRT's OpenAI-compatible endpoint layer per request, while an upstream native direct-inference UI does not traverse that logging path. Its trigger also counts `max_tokens`, so common clients can produce an over-broad warning on every request. Any correction should be a separate focused change (exclude non-sampler length limits and deduplicate), not part of floating-monitor cleanup.
 
 These are cleanup tasks in `openspec/changes/add-background-floating-monitor/tasks.md`; they do not justify a redesign or a second service.
 
@@ -172,7 +177,7 @@ These are cleanup tasks in `openspec/changes/add-background-floating-monitor/tas
 ## 9. Current blockers and next action
 
 - Local Gradle remains unavailable because the host has no configured Java/JDK; code validation uses GitHub Actions.
-- No APK containing the lifecycle fixes or latest monitor cleanup has been installed on the device.
-- Device currently runs `0.9.6-dev.105` until a later signed APK is explicitly approved and manually installed.
+- Device runs the signed lifecycle build `0.9.6-dev.106`; it does not contain the later monitor cleanup through `93486e9c`.
+- The user completed a normal Gemma request/monitor smoke on dev.106; timeout, cancellation, Gate 0, and the latest tap-recovery code remain unverified on-device.
 
-**Next action:** continue the floating-monitor task list with bounded tap-suppression recovery. Lifecycle Gate 0 remains paused until the user returns to inference lifecycle work.
+**Next action:** continue the floating-monitor task list with the idle-polling RED: RUNNING must be event-driven, while visible PROCESSING alone retains the 1 Hz elapsed ticker. Lifecycle Gate 0 remains paused until the user returns to inference lifecycle work.

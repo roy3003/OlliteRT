@@ -39,9 +39,11 @@ Implement each as a focused RED → minimal GREEN cycle.
 
 ### 3. Tap suppression cannot latch permanently
 
-- [ ] RED: a reported-successful Activity launch that never reaches foreground SHALL NOT hide the monitor indefinitely.
-- [ ] Replace the synthetic `appIsForeground || tapSuppressed` encoding with an explicit bounded suppression input/state.
-- [ ] Preserve detach-before-launch and PendingIntent/direct fallback behavior.
+- [x] RED: a reported-successful Activity launch that never reaches foreground SHALL NOT hide the monitor indefinitely.
+- [x] Replace the synthetic `appIsForeground || tapSuppressed` encoding with an explicit bounded suppression input/state.
+- [x] Preserve detach-before-launch and PendingIntent/direct fallback behavior.
+
+Evidence: helper RED `b0da73d9` failed before the bounded state existed; initial GREEN `4ee62b00` passed compile/JVM/lint in Actions `30476236683`. Review then found that an immediate total launch failure could still depend on the unrelated ticker because `StateFlow` may conflate a same-turn `true → false`. Integration RED `75e69f15` failed on the missing coordinator in Actions `30477061732`; GREEN `93486e9c` added explicit detach/launch/reconcile coordination and passed compile/JVM/lint in Actions `30478480764`. Focused follow-up review closed both prior blockers with no new blocking Standards or Spec findings.
 
 ### 4. Avoid perpetual idle polling
 
