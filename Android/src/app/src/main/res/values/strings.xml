@@ -324,7 +324,7 @@
   <string name="settings_start_on_boot_desc_no_model" translatable="false">Select a default model above to enable</string>
   <string name="settings_start_on_boot_desc" translatable="false">Launch server automatically when device starts</string>
   <string name="settings_floating_monitor" translatable="false">Floating monitor</string>
-  <string name="settings_floating_monitor_desc" translatable="false">Show server status over other apps while OlliteRT is running in the background</string>
+  <string name="settings_floating_monitor_desc" translatable="false">Show server status over other apps while OlliteRT is running in the background. Restart the server after saving to apply this setting.</string>
   <string name="settings_floating_monitor_permission_required" translatable="false">Permission required</string>
   <string name="settings_floating_monitor_grant_permission" translatable="false">Grant permission</string>
   <string name="settings_floating_monitor_reset_position" translatable="false">Reset position</string>
