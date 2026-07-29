@@ -17,6 +17,10 @@
 package com.ollitert.llm.server.ui.floatingmonitor
 
 import com.ollitert.llm.server.common.ServerStatus
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -74,8 +78,29 @@ class FloatingMonitorStateTest {
     assertFalse(showMonitor(overlayPermissionGranted = false))
     assertFalse(showMonitor(permissionFlowInProgress = true))
     assertFalse(showMonitor(appIsForeground = true))
+    assertFalse(showMonitor(launchSuppressionActive = true))
     assertFalse(showMonitor(serviceIsAlive = false))
     assertFalse(showMonitor(visualState = FloatingMonitorVisualState.Hidden))
+  }
+
+  @OptIn(ExperimentalCoroutinesApi::class)
+  @Test
+  fun `reported successful launch without foreground does not hide monitor indefinitely`() = runTest {
+    val suppression = FloatingMonitorTapSuppression(
+      scope = this,
+      timeoutMillis = 3_000L,
+    )
+
+    suppression.suppress()
+    assertFalse(showMonitor(launchSuppressionActive = suppression.active.value))
+
+    advanceTimeBy(2_999L)
+    runCurrent()
+    assertFalse(showMonitor(launchSuppressionActive = suppression.active.value))
+
+    advanceTimeBy(1L)
+    runCurrent()
+    assertTrue(showMonitor(launchSuppressionActive = suppression.active.value))
   }
 
   private fun showMonitor(
@@ -83,6 +108,7 @@ class FloatingMonitorStateTest {
     overlayPermissionGranted: Boolean = true,
     permissionFlowInProgress: Boolean = false,
     appIsForeground: Boolean = false,
+    launchSuppressionActive: Boolean = false,
     serviceIsAlive: Boolean = true,
     visualState: FloatingMonitorVisualState = FloatingMonitorVisualState.Running,
   ): Boolean =
@@ -91,6 +117,7 @@ class FloatingMonitorStateTest {
       overlayPermissionGranted = overlayPermissionGranted,
       permissionFlowInProgress = permissionFlowInProgress,
       appIsForeground = appIsForeground,
+      launchSuppressionActive = launchSuppressionActive,
       serviceIsAlive = serviceIsAlive,
       visualState = visualState,
     )
