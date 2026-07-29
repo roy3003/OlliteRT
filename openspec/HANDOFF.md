@@ -1,6 +1,6 @@
 # Handoff: Floating Monitor and Minimal Inference Lifecycle
 
-**Updated:** 2026-07-29
+**Updated:** 2026-07-30
 
 **Working branch:** `fix/minimal-inference-lifecycle`
 
