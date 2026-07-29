@@ -29,8 +29,8 @@ Implement each as a focused RED → minimal GREEN cycle.
 
 ### 1. Saved permission intent
 
-- [ ] RED: an unsaved draft toggle SHALL NOT expose or launch overlay permission settings.
-- [ ] Gate the permission-required row and Grant action on the saved setting value, not the draft value.
+- [x] RED: an unsaved draft toggle SHALL NOT expose or launch overlay permission settings.
+- [x] Gate the permission-required row and Grant action on the saved setting value, not the draft value.
 
 ### 2. Restart-required affordance
 
