@@ -171,7 +171,7 @@ internal fun AutoLaunchCard(
         searchQuery = vm.searchQuery,
       )
 
-      if (vm.floatingMonitorEntry.current && !overlayPermissionGranted) {
+      if (vm.shouldShowFloatingMonitorPermissionAction(overlayPermissionGranted)) {
         Row(
           modifier = Modifier.fillMaxWidth(),
           verticalAlignment = Alignment.CenterVertically,

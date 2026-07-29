@@ -190,6 +190,9 @@ class SettingsViewModel @Inject constructor(
     floatingMonitorPermissionCoordinator.endPermissionFlow()
   }
 
+  fun shouldShowFloatingMonitorPermissionAction(overlayPermissionGranted: Boolean): Boolean =
+    floatingMonitorEntry.saved && !overlayPermissionGranted
+
   fun resetFloatingMonitorPosition() {
     ServerPrefs.resetFloatingMonitorPosition(context)
   }
