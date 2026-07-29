@@ -16,6 +16,7 @@
 
 package com.ollitert.llm.server.ui.server.settings
 
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -190,6 +191,18 @@ class SettingsDefsTest {
     assertEquals(CardId.AUTO_LAUNCH, FLOATING_MONITOR.card)
     assertFalse(FLOATING_MONITOR.default)
     assertFalse(FLOATING_MONITOR.resetDefault)
+  }
+
+  @Test
+  fun `floating monitor description explains server restart requirement`() {
+    val stringsXml = File("src/main/res/values/strings.xml").readText()
+    val description = requireNotNull(
+      Regex("""<string name="settings_floating_monitor_desc"[^>]*>([^<]*)</string>""")
+        .find(stringsXml),
+    ).groupValues[1].lowercase()
+
+    assertTrue("Floating monitor description must mention restart", "restart" in description)
+    assertTrue("Floating monitor description must mention server", "server" in description)
   }
 
   @Test
