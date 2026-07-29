@@ -23,6 +23,50 @@ import org.junit.Test
 class FloatingMonitorRetryBudgetTest {
 
   @Test
+  fun `periodic refresh runs only for visible processing or bounded retry`() {
+    assertFalse(
+      shouldScheduleFloatingMonitorRefresh(
+        visualState = FloatingMonitorVisualState.Running,
+        modelVisible = true,
+        reconciled = true,
+        retryAllowed = true,
+      )
+    )
+    assertTrue(
+      shouldScheduleFloatingMonitorRefresh(
+        visualState = FloatingMonitorVisualState.Processing,
+        modelVisible = true,
+        reconciled = true,
+        retryAllowed = true,
+      )
+    )
+    assertFalse(
+      shouldScheduleFloatingMonitorRefresh(
+        visualState = FloatingMonitorVisualState.Processing,
+        modelVisible = false,
+        reconciled = true,
+        retryAllowed = true,
+      )
+    )
+    assertTrue(
+      shouldScheduleFloatingMonitorRefresh(
+        visualState = FloatingMonitorVisualState.Running,
+        modelVisible = true,
+        reconciled = false,
+        retryAllowed = true,
+      )
+    )
+    assertFalse(
+      shouldScheduleFloatingMonitorRefresh(
+        visualState = FloatingMonitorVisualState.Running,
+        modelVisible = true,
+        reconciled = false,
+        retryAllowed = false,
+      )
+    )
+  }
+
+  @Test
   fun `third consecutive failure exhausts budget while success resets it`() {
     val budget = FloatingMonitorRetryBudget(maxConsecutiveFailures = 3)
 
