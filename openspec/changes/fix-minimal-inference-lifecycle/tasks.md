@@ -20,6 +20,9 @@ This is the short continuation plan. Complete each code group as one focused det
 - [x] Commit incremental cache metadata only for completed, non-stop-sequence results.
 - [x] Add an initial keep-alive generation guard so already-dispatched stale timeout callbacks can be invalidated.
 - [x] GitHub Actions `30334882872`: stableDebug compile, JVM tests, and Android lint passed at code commit `0dc2996c`.
+- [x] Complete lifecycle Group 1 through code HEAD `80f6063a`: execution phase plus its phase-owned outcome is the single terminal authority; StopSequence winners complete the stream once; terminal notification precedes owner-only native cancellation; a throwing cancel cannot bypass recovery/finish settlement.
+- [x] GitHub Actions `30717340493`: stableDebug compile, JVM tests, and Android lint passed at exact code HEAD `80f6063a`.
+- [x] Focused independent review `deleg_95c629e7` approved the complete Group 1 slice `933e53cc..80f6063a` with no blocking finding.
 
 ## Deferred Gate 0: Verify the current direction on device
 
@@ -30,14 +33,14 @@ Commit `168c293` already separated preparation from recovery and may have remove
 - [ ] When separately authorized, run the bounded Gemma timeout → processing zero → RUNNING → next HTTP 200 closure.
 - [ ] If that future gate fails, stop and revise the diagnosis before runtime acceptance.
 
-## Remaining blocking lifecycle work
+## Blocking lifecycle work
 
 ### 1. Make execution state the single terminal authority
 
-- [ ] RED: race normal callback, timeout, caller cancellation, and external cancellation; prove only one terminal outcome wins.
-- [ ] Make execution phase plus a phase-owned outcome authoritative for success, timeout, cancellation, disconnect, stop sequence, and error.
-- [ ] Keep native-completion and lifecycle-finished wait signals only as owner-driven notification primitives required by the handle-less SDK callback bridge.
-- [ ] Remove independent terminal writers; do not add a new `AtomicBoolean`, `AtomicReference`, or latch.
+- [x] RED: race normal callback, timeout, caller cancellation, and external cancellation; prove only one terminal outcome wins.
+- [x] Make execution phase plus a phase-owned outcome authoritative for success, timeout, cancellation, disconnect, stop sequence, and error.
+- [x] Keep native-completion and lifecycle-finished wait signals only as owner-driven notification primitives required by the handle-less SDK callback bridge.
+- [x] Remove independent terminal writers; do not add a new terminal `AtomicBoolean`, `AtomicReference`, or latch.
 
 ### 2. Recover deterministic exception paths
 
@@ -105,6 +108,6 @@ Run only when separately authorized and only after all five source groups, final
 - Do not modify `ServerLlmModelHelper.runInference()`, LiteRT Engine/Conversation wrappers, backend initialization, prompt/sampler/token/thinking/tool-call behavior, payloads, SSE wire format, notifications, or floating-monitor visuals without a new deterministic RED proving necessity.
 - Do not split blocking and streaming into separate lifecycle state machines.
 - Do not parallelize native inference; request ownership depends on the single-thread executor plus whole-generation `inferenceLock`.
-- `cancelNative()` may run under the execution state monitor only while the adapter acquires neither outer lock.
+- Claim cancellation under the execution state monitor, publish the winner notification, then let the execution owner call `cancelNative()` outside the monitor at most once.
 - Do not use metrics as admission state or introduce parallel terminal flags.
 - Stop and reassess if callbacks must cross three or more layers or native ownership can no longer remain in Gateway.

@@ -6,9 +6,9 @@
 
 **Fixed baseline:** `8ab20cb0ac43a825465752694b59f0e3907ac3e3`
 
-**Latest code HEAD before this handoff update:** `93486e9c1cfecd5971fb7865be9da90a9e49662d`
+**Latest code HEAD before this handoff update:** `80f6063adf6a97d6ac253db82616e95da00ebad5`
 
-**Latest code CI evidence:** GitHub Actions `30478480764` passed stableDebug compilation, JVM tests, and Android lint at code commit `93486e9c`.
+**Latest code CI evidence:** GitHub Actions `30717340493` passed stableDebug compilation, JVM tests, and Android lint at exact code commit `80f6063a`.
 
 This document is the cold-session entry point. Stable user preferences and project guardrails live in [`openspec/USER_PREFERENCES.md`](USER_PREFERENCES.md). Stable behavior requirements live in the two OpenSpec change specs; executable sequencing and checkboxes live in their `tasks.md`. Do not treat this handoff as proof of runtime acceptance.
 
@@ -24,7 +24,8 @@ main (f4f7bf9)
             ├─ tracked lifecycle documents through 79a84d53
             ├─ active/inactive Floating monitor visual Deltas through d3b835f9
             ├─ obsolete event-driven-idle RED 783aac1f reverted by 46322dfa
-            └─ approved static Floating monitor implementation through 502d01a0
+            ├─ approved static Floating monitor implementation through 502d01a0
+            └─ lifecycle Group 1 single terminal authority through 80f6063a
 ```
 
 The endpoint-selector removal is deliberate. It is not a stray revert. The monitor and lifecycle work currently inherit that simplified baseline.
@@ -62,15 +63,21 @@ The current branch has deterministic JVM coverage and CI GREEN for:
 - native cancellation exactly once for an owned dispatched request;
 - recovery before operation finish and metrics completion;
 - incremental cache metadata only for completed, non-stop-sequence results;
-- keep-alive generation invalidation for stale timeout callbacks.
+- keep-alive generation invalidation for stale timeout callbacks;
+- execution phase plus a phase-owned outcome as the single terminal authority for success, timeout, throwable, caller/external cancellation, and stop sequence;
+- first-winner suppression of later terminal callbacks and side effects;
+- exactly one synthetic successful completion notification when StopSequence wins, with no synthetic success for caller/external cancellation;
+- winner notification before owner-only native cancellation, with a throwing cancel unable to bypass the existing recovery/finish barrier.
 
 Protected boundaries remain unchanged: LiteRT Engine/Conversation wrappers, `ServerLlmModelHelper.runInference()`, normal prompt/sampler/token/thinking/tool-call behavior, payloads, SSE wire format, notification behavior, and floating-monitor visuals.
 
-## 4. Remaining lifecycle findings and decisions
+## 4. Lifecycle findings and decisions
 
-### Terminal state authority
+### Completed terminal state authority
 
-Execution phase plus a phase-owned outcome must become the sole authority for success, timeout, cancellation, disconnect, stop sequence, and error. Native-completion and lifecycle-finished signals may remain only as owner-driven notifications required by the SDK callback bridge. Do not add another flag, atomic reference, or latch.
+Group 1 is complete through `80f6063a`. Execution phase plus its phase-owned outcome is the sole authority for success, timeout, cancellation, disconnect, stop sequence, and error. Native-completion and lifecycle-finished latches remain owner notification only. Terminal contenders share one first-winner claim; queued/preparing cancellation never native-cancels, while an active cancellation is performed outside the execution monitor by the executor owner at most once.
+
+The initial terminal-authority RED `97b7454a` failed as expected in Actions `30714744834`. StopSequence completion received a separate RED in `8e8b9ebe` / Actions `30715606525`, then turned green in `52302548` / Actions `30715803242`. Focused review `deleg_eb401613` found both the missing StopSequence completion and a notification-order regression when native cancel throws. The first was already closed by `52302548`; the second received follow-up tests and the owner-settlement fix `9a325d05`. Actions `30716304166` and `30716451369` were test-harness compile failures and are not represented as behavioral RED evidence. Actions `30716613076` provided the valid streaming cancel-throw RED; the blocking harness was subsequently found to self-block on the `runBlocking` event loop and was corrected in `80f6063a`. Final exact-HEAD Actions `30717340493` passed compile, JVM tests, and lint, and focused review `deleg_95c629e7` approved the complete `933e53cc..80f6063a` slice.
 
 ### Exception reachability before unbounded settlement
 
@@ -108,8 +115,7 @@ The separate audio-transcription `NonCancellable` path is explicitly excluded. R
 Follow `openspec/changes/fix-minimal-inference-lifecycle/tasks.md` and `serialized-inference-lane-delta.md`. The current source/JVM/CI-first order is:
 
 ```text
-phase-owned terminal outcome
-→ deterministic exception paths
+deterministic exception paths
 → remove timeout + 5 early return
 → complete ModelRequestLease and rejectWhenBusy admission
 → SSE parent cancellation
@@ -168,7 +174,7 @@ The obsolete event-driven-idle RED was reverted after the cadence decision chang
 
 - One remaining task group per focused RED → minimal GREEN cycle.
 - A RED must fail on the current code for the stated reason before implementation.
-- Stop if a change adds another request-state flag/atomic/latch or pushes callbacks through three or more layers.
+- Stop if a change adds another terminal-authority flag/atomic/latch or pushes callbacks through three or more layers. The phase-owned at-most-once native-cancel marker is a side-effect guard, not a terminal outcome writer.
 - Keep blocking and streaming on one native ownership core.
 - Do not parallelize Conversation inference.
 - Update the relevant `tasks.md` immediately after each verified group.
@@ -179,7 +185,7 @@ The obsolete event-driven-idle RED was reverted after the cadence decision chang
 
 - Local Gradle remains unavailable because the host has no configured Java/JDK; code validation uses GitHub Actions.
 - The active visual delta is implemented and source/JVM/CI reviewed; its separately authorized real-device acceptance checklist remains deferred.
-- Five lifecycle source-hardening groups remain: terminal authority, deterministic exception recovery, grace removal, atomic model admission, and SSE parent cancellation.
+- Four lifecycle source-hardening groups remain: deterministic exception recovery, grace removal, atomic model admission, and SSE parent cancellation.
 - Device Gate 0/Gate 5 and final inference smoke remain deferred and must not be inferred from compile/JVM/lint evidence.
 
-**Next action:** begin lifecycle Group 1, `Make execution state the single terminal authority`, as its own focused RED → minimal GREEN slice. Do not mix deterministic exception recovery, timeout-grace removal, model admission, or SSE parent cancellation into that group. Preserve `litertlm-android:0.11.0` and the protected `ServerLlmModelHelper.kt` boundary.
+**Next action:** begin lifecycle Group 2, `Recover deterministic exception paths`, as its own focused RED → minimal GREEN slice. Cover preparation, synchronous dispatch, cancellation, recovery, and finish failures without removing the `timeoutSeconds + 5` grace, adding admission ownership, or changing SSE parent cancellation. Preserve `litertlm-android:0.11.0` and the protected `ServerLlmModelHelper.kt` boundary.
