@@ -643,7 +643,7 @@ class InferenceGatewayTest {
     val externalCancel = AtomicReference<(() -> Unit)?>(null)
     val recoverCalls = AtomicInteger(0)
     val finishCalls = AtomicInteger(0)
-    val deferred = async {
+    val deferred = async(Dispatchers.Default) {
       InferenceGateway.execute(
         timeoutSeconds = 30,
         executor = threadPool,
