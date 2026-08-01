@@ -630,6 +630,62 @@ class InferenceGatewayTest {
     } finally {
       allowRecoveryToFinish.countDown()
       threadPool.shutdownNow()
+    }
+  }
+
+  @Test
+  fun throwingNativeCancelDoesNotBypassBlockingOwnerSettlement() = runBlocking {
+    val threadPool = Executors.newSingleThreadExecutor()
+    val nativeStarted = CountDownLatch(1)
+    val externalCancel = AtomicReference<(() -> Unit)?>(null)
+    val recoverCalls = AtomicInteger(0)
+    val finishCalls = AtomicInteger(0)
+    val deferred = async {
+      InferenceGateway.execute(
+        timeoutSeconds = 30,
+        executor = threadPool,
+        inferenceLock = Any(),
+        operation = object : InferenceGateway.NativeOperation {
+          override fun prepare() = Unit
+
+          override fun dispatch(
+            onPartial: (String, Boolean, String?) -> Unit,
+            onError: (String) -> Unit,
+          ) {
+            nativeStarted.countDown()
+          }
+
+          override fun cancel() {
+            throw IllegalStateException("cancel failed")
+          }
+
+          override fun recover() {
+            recoverCalls.incrementAndGet()
+          }
+
+          override fun finish() {
+            finishCalls.incrementAndGet()
+          }
+        },
+        onCancellationReady = { cancel ->
+          externalCancel.set { cancel(InferenceGateway.CancellationReason.EXTERNAL) }
+        },
+      )
+    }
+
+    try {
+      assertTrue("native inference did not start", nativeStarted.await(2, TimeUnit.SECONDS))
+      val cancelFailure = runCatching { externalCancel.get()!!.invoke() }.exceptionOrNull()
+      assertNull("cancel failure must remain on the execution owner", cancelFailure)
+
+      val result = withTimeout(2_000) { deferred.await() }
+      assertEquals("client_disconnected", result.error)
+      assertEquals(1, recoverCalls.get())
+      assertEquals(1, finishCalls.get())
+    } finally {
+      threadPool.shutdownNow()
+      deferred.cancel()
+      runCatching { deferred.await() }
       threadPool.awaitTermination(2, TimeUnit.SECONDS)
     }
   }
@@ -902,6 +958,62 @@ class InferenceGatewayTest {
       assertEquals("stop sequence must complete the stream exactly once", 1, doneCalls.get())
       assertEquals(1, cancelCalls.get())
       assertEquals(1, recoverCalls.get())
+    } finally {
+      threadPool.shutdownNow()
+      threadPool.awaitTermination(2, TimeUnit.SECONDS)
+    }
+  }
+
+  @Test
+  fun throwingNativeCancelDoesNotBypassStreamingOwnerSettlement() {
+    val threadPool = Executors.newSingleThreadExecutor()
+    val nativeStarted = CountDownLatch(1)
+    val lifecycleFinished = CountDownLatch(1)
+    val cancelAction = AtomicReference<((InferenceGateway.CancellationReason) -> Unit)?>(null)
+    val recoverCalls = AtomicInteger(0)
+    val finishCalls = AtomicInteger(0)
+
+    try {
+      InferenceGateway.executeStreaming(
+        timeoutSeconds = 30,
+        executor = threadPool,
+        inferenceLock = Any(),
+        operation = object : InferenceGateway.NativeOperation {
+          override fun prepare() = Unit
+
+          override fun dispatch(
+            onPartial: (String, Boolean, String?) -> Unit,
+            onError: (String) -> Unit,
+          ) {
+            nativeStarted.countDown()
+          }
+
+          override fun cancel() {
+            throw IllegalStateException("cancel failed")
+          }
+
+          override fun recover() {
+            recoverCalls.incrementAndGet()
+          }
+
+          override fun finish() {
+            finishCalls.incrementAndGet()
+            lifecycleFinished.countDown()
+          }
+        },
+        onToken = { _, _, _ -> Unit },
+        onError = { fail("external cancellation must not surface as an error: $it") },
+        onCancellationReady = { cancel -> cancelAction.set(cancel) },
+      )
+
+      assertTrue("native inference did not start", nativeStarted.await(2, TimeUnit.SECONDS))
+      val cancelFailure = runCatching {
+        cancelAction.get()!!.invoke(InferenceGateway.CancellationReason.EXTERNAL)
+      }.exceptionOrNull()
+      assertNull("cancel failure must remain on the execution owner", cancelFailure)
+      assertTrue("lifecycle did not finish", lifecycleFinished.await(2, TimeUnit.SECONDS))
+      assertEquals(1, recoverCalls.get())
+      assertEquals(1, finishCalls.get())
     } finally {
       threadPool.shutdownNow()
       threadPool.awaitTermination(2, TimeUnit.SECONDS)
