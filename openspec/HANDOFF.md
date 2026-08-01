@@ -23,7 +23,8 @@ main (f4f7bf9)
             ├─ floating-monitor saved-intent, restart-copy, and bounded tap-recovery cleanup through 93486e9c
             ├─ tracked lifecycle documents through 79a84d53
             ├─ active/inactive Floating monitor visual Deltas through d3b835f9
-            └─ obsolete event-driven-idle RED 783aac1f reverted by 46322dfa
+            ├─ obsolete event-driven-idle RED 783aac1f reverted by 46322dfa
+            └─ approved static Floating monitor implementation through 502d01a0
 ```
 
 The endpoint-selector removal is deliberate. It is not a stray revert. The monitor and lifecycle work currently inherit that simplified baseline.
@@ -161,7 +162,7 @@ Device evidence on 2026-07-30: persistently signed `0.9.6-dev.106` (`versionCode
 
 The repeated `Sampler params may be ignored on GPU backend` warning is not new to dev.106: both dev.105's baseline and dev.106 contain commit `aeb33721`. It is emitted by OlliteRT's OpenAI-compatible endpoint layer per request, while an upstream native direct-inference UI does not traverse that logging path. Its trigger also counts `max_tokens`, so common clients can produce an over-broad warning on every request. Any correction should be a separate focused change (exclude non-sampler length limits and deduplicate), not part of floating-monitor cleanup.
 
-The obsolete event-driven-idle RED was reverted after the cadence decision changed. The remaining monitor work is the approved static visual delta plus final source/JVM/CI review; it does not justify a second service.
+The obsolete event-driven-idle RED was reverted after the cadence decision changed. The approved static visual delta is now implemented through `502d01a0`; its formatter/latch, controller/render-model, and Canvas/geometry slices each completed RED → GREEN, exact-HEAD compile/JVM/lint, and focused source review with no blocking findings. Existing one-second reconciliation remains unchanged and no second service was introduced. The complete device acceptance checklist remains deferred rather than waived.
 
 ## 8. Working rules
 
@@ -177,8 +178,8 @@ The obsolete event-driven-idle RED was reverted after the cadence decision chang
 ## 9. Current blockers and next action
 
 - Local Gradle remains unavailable because the host has no configured Java/JDK; code validation uses GitHub Actions.
-- The active visual delta is specified but not implemented.
+- The active visual delta is implemented and source/JVM/CI reviewed; its separately authorized real-device acceptance checklist remains deferred.
 - Five lifecycle source-hardening groups remain: terminal authority, deterministic exception recovery, grace removal, atomic model admission, and SSE parent cancellation.
 - Device Gate 0/Gate 5 and final inference smoke remain deferred and must not be inferred from compile/JVM/lint evidence.
 
-**Next action:** implement the active static Floating monitor delta in focused formatter/render-model/View RED → GREEN slices, then resume the five serialized-lane lifecycle hardening groups. Preserve `litertlm-android:0.11.0` and the protected `ServerLlmModelHelper.kt` boundary.
+**Next action:** begin lifecycle Group 1, `Make execution state the single terminal authority`, as its own focused RED → minimal GREEN slice. Do not mix deterministic exception recovery, timeout-grace removal, model admission, or SSE parent cancellation into that group. Preserve `litertlm-android:0.11.0` and the protected `ServerLlmModelHelper.kt` boundary.

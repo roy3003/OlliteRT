@@ -58,18 +58,20 @@ The active contract is `floating-monitor-visual-delta.md`. The breathing/carouse
 
 Implement these as focused RED → minimal GREEN slices:
 
-- [ ] RED/GREEN: compact previous-latency formatter (`—`, exact `ms`, ASCII-dot one-decimal `s`, and cap).
-- [ ] RED/GREEN: grouped request/error drawing retains commas while punctuation uses a narrower proportional advance.
-- [ ] RED/GREEN: controller latches existing `lastLatencyMs` once per new PROCESSING `inferenceSequence`; render model exposes that previous-success snapshot.
-- [ ] RED/GREEN: View uses 88 × 100dp, approved palette/alpha, fixed type hierarchy, and unchanged RUNNING information layout.
-- [ ] RED/GREEN: changed dimensions preserve normalized-position restoration and clamp geometry across rotation/inset changes.
-- [ ] RED/GREEN: PROCESSING lower area renders `proc | last` with fixed 25%/75% centers, 66%/78% baselines, `textScaleX = 0.68`, ≤40dp composite runs, smaller units, divider, and no clipping at caps.
-- [ ] Verify that no breathing, carousel timer, new polling loop, average latency, Logo, or inference lifecycle behavior is introduced.
+- [x] RED/GREEN: compact previous-latency formatter (`—`, exact `ms`, ASCII-dot one-decimal `s`, and cap).
+- [x] RED/GREEN: grouped request/error drawing retains commas while punctuation uses a narrower proportional advance.
+- [x] RED/GREEN: controller latches existing `lastLatencyMs` once per new PROCESSING `inferenceSequence`; render model exposes that previous-success snapshot.
+- [x] RED/GREEN: View uses 88 × 100dp, approved palette/alpha, fixed type hierarchy, and unchanged RUNNING information layout.
+- [x] RED/GREEN: changed dimensions preserve normalized-position restoration and clamp geometry across rotation/inset changes.
+- [x] RED/GREEN: PROCESSING lower area renders `proc | last` with fixed 25%/75% centers, 66%/78% baselines, `textScaleX = 0.68`, ≤40dp composite runs, smaller units, divider, and no clipping at caps.
+- [x] Verify that no breathing, carousel timer, new polling loop, average latency, Logo, or inference lifecycle behavior is introduced.
+
+Evidence: formatter/latch RED `635d61da` failed only on the missing formatter/latch symbols in Actions `30710155769`; GREEN `2b41b2f1` passed compile/JVM/lint in Actions `30710330369`. Controller/render-model RED `b0938ed5` failed only on the missing render contracts in Actions `30711752727`; GREEN `fb932e38` passed compile/JVM/lint in Actions `30711954831` and focused implementation review returned APPROVE. Canvas/geometry RED `f5c7dceb` failed only on the missing visual contracts in Actions `30712849087`; GREEN `502d01a0` passed compile/JVM/lint in Actions `30713079340`, kept the longest conservatively measured lower composite run below 40dp, and focused implementation review returned APPROVE with no blocking findings.
 
 ## Final verification
 
-- [ ] Run `git diff --check` and focused compile/JVM/lint on the exact final HEAD.
-- [ ] Re-run dual-axis review against the fixed monitor baseline.
+- [x] Run `git diff --check` and focused compile/JVM/lint on the exact final HEAD.
+- [x] Re-run dual-axis review against the fixed monitor baseline.
 - [ ] Deferred until separately authorized: real-device saved/draft permission behavior, grant/deny/revoke, restart hint, RUNNING/PROCESSING rendering, foreground/non-running hiding, tap-failure recovery, drag/placement, rotation/insets, reset, Service stop, and inference smoke.
-- [ ] Confirm overlay failures never stop the server, the existing visible one-second reconciliation remains bounded, and hidden/disposed monitor work stops.
+- [x] Confirm overlay failures never stop the server, the existing visible one-second reconciliation remains bounded, and hidden/disposed monitor work stops.
 - [ ] Do not archive the OpenSpec change until all required evidence is complete.
