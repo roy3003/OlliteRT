@@ -94,6 +94,7 @@ object InferenceGateway {
     private val stateLock = Any()
     private var phase = ExecutionPhase.QUEUED
     private var terminalOutcome: ExecutionOutcome? = null
+    private var nativeCancellationStarted = false
 
     fun beginPreparation(): Boolean = synchronized(stateLock) {
       if (phase != ExecutionPhase.QUEUED || terminalOutcome != null) return@synchronized false
@@ -102,7 +103,6 @@ object InferenceGateway {
     }
 
     fun dispatch(startNative: () -> Unit): Boolean {
-      var cancelAfterDispatch = false
       synchronized(stateLock) {
         if (phase != ExecutionPhase.PREPARING || terminalOutcome != null) return false
         phase = ExecutionPhase.DISPATCHING
@@ -115,19 +115,14 @@ object InferenceGateway {
         val outcome = terminalOutcome
         phase = when {
           outcome == null -> ExecutionPhase.RUNNING
-          outcome.requiresNativeCancellation() -> {
-            cancelAfterDispatch = true
-            ExecutionPhase.CANCELLING
-          }
+          outcome.requiresNativeCancellation() -> ExecutionPhase.CANCELLING
           else -> ExecutionPhase.SETTLING
         }
       }
-      if (cancelAfterDispatch) cancelNative()
       return true
     }
 
     fun trySetOutcome(outcome: ExecutionOutcome): Boolean {
-      var cancelNow = false
       synchronized(stateLock) {
         if (terminalOutcome != null || phase == ExecutionPhase.FINISHED) return false
         terminalOutcome = outcome
@@ -141,7 +136,6 @@ object InferenceGateway {
 
           ExecutionPhase.DISPATCHING -> ExecutionPhase.DISPATCHING
           ExecutionPhase.RUNNING -> if (outcome.requiresNativeCancellation()) {
-            cancelNow = true
             ExecutionPhase.CANCELLING
           } else {
             ExecutionPhase.SETTLING
@@ -153,11 +147,22 @@ object InferenceGateway {
           ExecutionPhase.CANCELLED_BEFORE_DISPATCH -> return false
         }
       }
-      if (cancelNow) cancelNative()
       return true
     }
 
     fun outcome(): ExecutionOutcome? = synchronized(stateLock) { terminalOutcome }
+
+    fun performNativeCancellation() {
+      val shouldCancel = synchronized(stateLock) {
+        if (phase != ExecutionPhase.CANCELLING || nativeCancellationStarted) {
+          false
+        } else {
+          nativeCancellationStarted = true
+          true
+        }
+      }
+      if (shouldCancel) cancelNative()
+    }
 
     fun beginRecovery(): Boolean = synchronized(stateLock) {
       if (phase != ExecutionPhase.CANCELLING) return@synchronized false
@@ -192,6 +197,18 @@ object InferenceGateway {
 
   private fun ExecutionOutcome.isSuccessful(): Boolean =
     this is ExecutionOutcome.Success || this is ExecutionOutcome.StopSequence
+
+  private fun settleCancellation(
+    execution: InferenceExecution,
+    operation: NativeOperation,
+  ) {
+    try {
+      execution.performNativeCancellation()
+    } catch (e: Exception) {
+      Log.e(TAG, "Native cancellation failed; continuing owner settlement", e)
+    }
+    if (execution.beginRecovery()) operation.recover()
+  }
 
   /**
    * Fires inference on [executor] and delivers tokens via [onToken] as they arrive.
@@ -289,7 +306,7 @@ object InferenceGateway {
           if (!completed && execution.trySetOutcome(ExecutionOutcome.Timeout)) {
             onError("timeout")
           }
-          if (execution.beginRecovery()) operation.recover()
+          settleCancellation(execution, operation)
         } catch (t: Throwable) {
           if (t is OutOfMemoryError) System.gc()
           onCaughtThrowable?.invoke(t)
@@ -298,7 +315,7 @@ object InferenceGateway {
             onError(message)
             nativeCompletion.countDown()
           }
-          if (execution.beginRecovery()) operation.recover()
+          settleCancellation(execution, operation)
         } finally {
           execution.finish()
           try {
@@ -407,7 +424,7 @@ object InferenceGateway {
           if (!dispatched) return@synchronized
           val completed = nativeCompletion.await(timeoutSeconds, TimeUnit.SECONDS)
           if (!completed) execution.trySetOutcome(ExecutionOutcome.Timeout)
-          if (execution.beginRecovery()) operation.recover()
+          settleCancellation(execution, operation)
         } catch (t: Throwable) {
           if (t is OutOfMemoryError) System.gc()
           onCaughtThrowable?.invoke(t)
@@ -415,7 +432,7 @@ object InferenceGateway {
           if (execution.trySetOutcome(ExecutionOutcome.Error(message))) {
             nativeCompletion.countDown()
           }
-          if (execution.beginRecovery()) operation.recover()
+          settleCancellation(execution, operation)
         } finally {
           try { operation.finish() } catch (t: Throwable) {
             Log.w(TAG, "NativeOperation.finish() failed", t)
