@@ -76,6 +76,30 @@ class FloatingMonitorPlacementTest {
   }
 
   @Test
+  fun `normalized placement restores across compact monitor dimensions`() {
+    val oldBounds = FloatingMonitorPlacementBounds(
+      minX = 0,
+      maxX = 400 - 96,
+      minY = 0,
+      maxY = 800 - 108,
+    )
+    val compactBounds = FloatingMonitorPlacementBounds(
+      minX = 0,
+      maxX = 400 - FLOATING_MONITOR_WIDTH_DP.toInt(),
+      minY = 0,
+      maxY = 800 - FLOATING_MONITOR_HEIGHT_DP.toInt(),
+    )
+
+    val normalized = normalizeFloatingMonitorPosition(FloatingMonitorPoint(152, 346), oldBounds)
+
+    assertEquals(NormalizedFloatingMonitorPosition(0.5f, 0.5f), normalized)
+    assertEquals(
+      FloatingMonitorPoint(156, 350),
+      restoreFloatingMonitorPosition(normalized, compactBounds),
+    )
+  }
+
+  @Test
   fun `collapsed bounds stay finite and use their only valid point`() {
     val bounds = FloatingMonitorPlacementBounds(
       minX = 42,
