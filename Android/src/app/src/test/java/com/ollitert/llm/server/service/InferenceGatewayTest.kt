@@ -676,7 +676,9 @@ class InferenceGatewayTest {
                 }
               },
               elapsedMs = { tick() },
-              onCancellationReady = { cancel -> externalCancel.set(cancel) },
+              onCancellationReady = { cancel ->
+                externalCancel.set { cancel(InferenceGateway.CancellationReason.EXTERNAL) }
+              },
             ),
           )
         } finally {
@@ -882,7 +884,9 @@ class InferenceGatewayTest {
         },
         onToken = { _, _, _ -> },
         onError = {},
-        onCancellationReady = { cancel -> cancelAction.set(cancel) },
+        onCancellationReady = { cancel ->
+          cancelAction.set { cancel(InferenceGateway.CancellationReason.EXTERNAL) }
+        },
       )
 
       assertTrue(nativeStarted.await(2, TimeUnit.SECONDS))

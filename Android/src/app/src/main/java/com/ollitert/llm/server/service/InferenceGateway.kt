@@ -27,8 +27,6 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 
 data class InferenceResult(
   val output: String?,
@@ -63,6 +61,21 @@ object InferenceGateway {
     fun finish()
   }
 
+  internal enum class CancellationReason {
+    CALLER,
+    EXTERNAL,
+    STOP_SEQUENCE,
+  }
+
+  internal sealed interface ExecutionOutcome {
+    data object Success : ExecutionOutcome
+    data object Timeout : ExecutionOutcome
+    data object CallerCancelled : ExecutionOutcome
+    data object ExternalCancelled : ExecutionOutcome
+    data object StopSequence : ExecutionOutcome
+    data class Error(val message: String) : ExecutionOutcome
+  }
+
   private enum class ExecutionPhase {
     QUEUED,
     PREPARING,
@@ -74,51 +87,77 @@ object InferenceGateway {
     CANCELLED_BEFORE_DISPATCH,
   }
 
-  /** Owns the dispatch/cancel boundary for one request. */
-  private class InferenceExecution(
+  /** Owns the phase and single terminal outcome for one request. */
+  internal class InferenceExecution(
     private val cancelNative: () -> Unit,
   ) {
     private val stateLock = Any()
     private var phase = ExecutionPhase.QUEUED
+    private var terminalOutcome: ExecutionOutcome? = null
 
     fun beginPreparation(): Boolean = synchronized(stateLock) {
-      if (phase != ExecutionPhase.QUEUED) return@synchronized false
+      if (phase != ExecutionPhase.QUEUED || terminalOutcome != null) return@synchronized false
       phase = ExecutionPhase.PREPARING
       true
     }
 
-    fun dispatch(startNative: () -> Unit): Boolean = synchronized(stateLock) {
-      if (phase != ExecutionPhase.PREPARING) return@synchronized false
-      phase = ExecutionPhase.DISPATCHING
-      try {
-        startNative()
-        phase = ExecutionPhase.RUNNING
-        true
-      } catch (t: Throwable) {
-        phase = ExecutionPhase.SETTLING
-        throw t
-      }
-    }
-
-    fun cancel() {
+    fun dispatch(startNative: () -> Unit): Boolean {
+      var cancelAfterDispatch = false
       synchronized(stateLock) {
-        when (phase) {
-          ExecutionPhase.QUEUED,
-          ExecutionPhase.PREPARING -> phase = ExecutionPhase.CANCELLED_BEFORE_DISPATCH
-
-          ExecutionPhase.RUNNING -> {
-            phase = ExecutionPhase.CANCELLING
-            cancelNative()
+        if (phase != ExecutionPhase.PREPARING || terminalOutcome != null) return false
+        phase = ExecutionPhase.DISPATCHING
+        try {
+          startNative()
+        } catch (t: Throwable) {
+          phase = ExecutionPhase.SETTLING
+          throw t
+        }
+        val outcome = terminalOutcome
+        phase = when {
+          outcome == null -> ExecutionPhase.RUNNING
+          outcome.requiresNativeCancellation() -> {
+            cancelAfterDispatch = true
+            ExecutionPhase.CANCELLING
           }
-
-          ExecutionPhase.DISPATCHING,
-          ExecutionPhase.CANCELLING,
-          ExecutionPhase.SETTLING,
-          ExecutionPhase.FINISHED,
-          ExecutionPhase.CANCELLED_BEFORE_DISPATCH -> Unit
+          else -> ExecutionPhase.SETTLING
         }
       }
+      if (cancelAfterDispatch) cancelNative()
+      return true
     }
+
+    fun trySetOutcome(outcome: ExecutionOutcome): Boolean {
+      var cancelNow = false
+      synchronized(stateLock) {
+        if (terminalOutcome != null || phase == ExecutionPhase.FINISHED) return false
+        terminalOutcome = outcome
+        phase = when (phase) {
+          ExecutionPhase.QUEUED,
+          ExecutionPhase.PREPARING -> if (outcome.requiresNativeCancellation()) {
+            ExecutionPhase.CANCELLED_BEFORE_DISPATCH
+          } else {
+            ExecutionPhase.SETTLING
+          }
+
+          ExecutionPhase.DISPATCHING -> ExecutionPhase.DISPATCHING
+          ExecutionPhase.RUNNING -> if (outcome.requiresNativeCancellation()) {
+            cancelNow = true
+            ExecutionPhase.CANCELLING
+          } else {
+            ExecutionPhase.SETTLING
+          }
+
+          ExecutionPhase.SETTLING -> ExecutionPhase.SETTLING
+          ExecutionPhase.CANCELLING,
+          ExecutionPhase.FINISHED,
+          ExecutionPhase.CANCELLED_BEFORE_DISPATCH -> return false
+        }
+      }
+      if (cancelNow) cancelNative()
+      return true
+    }
+
+    fun outcome(): ExecutionOutcome? = synchronized(stateLock) { terminalOutcome }
 
     fun beginRecovery(): Boolean = synchronized(stateLock) {
       if (phase != ExecutionPhase.CANCELLING) return@synchronized false
@@ -132,6 +171,27 @@ object InferenceGateway {
       }
     }
   }
+
+  private fun CancellationReason.toOutcome(): ExecutionOutcome = when (this) {
+    CancellationReason.CALLER -> ExecutionOutcome.CallerCancelled
+    CancellationReason.EXTERNAL -> ExecutionOutcome.ExternalCancelled
+    CancellationReason.STOP_SEQUENCE -> ExecutionOutcome.StopSequence
+  }
+
+  private fun ExecutionOutcome.requiresNativeCancellation(): Boolean =
+    this !is ExecutionOutcome.Success
+
+  private fun ExecutionOutcome.errorMessage(): String? = when (this) {
+    ExecutionOutcome.Success,
+    ExecutionOutcome.StopSequence -> null
+    ExecutionOutcome.Timeout -> "timeout"
+    ExecutionOutcome.CallerCancelled,
+    ExecutionOutcome.ExternalCancelled -> "client_disconnected"
+    is ExecutionOutcome.Error -> message
+  }
+
+  private fun ExecutionOutcome.isSuccessful(): Boolean =
+    this is ExecutionOutcome.Success || this is ExecutionOutcome.StopSequence
 
   /**
    * Fires inference on [executor] and delivers tokens via [onToken] as they arrive.
@@ -188,16 +248,12 @@ object InferenceGateway {
     onToken: (partial: String, done: Boolean, thought: String?) -> Unit,
     onError: (error: String) -> Unit,
     onCaughtThrowable: ((Throwable) -> Unit)? = null,
-    onCancellationReady: ((cancel: () -> Unit) -> Unit)? = null,
+    onCancellationReady: ((cancel: (CancellationReason) -> Unit) -> Unit)? = null,
   ) {
-    val latch = CountDownLatch(1)
-    val errorOccurred = AtomicBoolean(false)
-    val externallyCancelled = AtomicBoolean(false)
+    val nativeCompletion = CountDownLatch(1)
     val execution = InferenceExecution(operation::cancel)
-    onCancellationReady?.invoke {
-      externallyCancelled.set(true)
-      latch.countDown()
-      execution.cancel()
+    onCancellationReady?.invoke { reason ->
+      if (execution.trySetOutcome(reason.toOutcome())) nativeCompletion.countDown()
     }
 
     executor.execute {
@@ -208,34 +264,36 @@ object InferenceGateway {
           if (!execution.dispatch {
               operation.dispatch(
                 { partial, done, thought ->
-                  onToken(partial, done, thought)
-                  if (done) latch.countDown()
+                  if (done) {
+                    if (execution.trySetOutcome(ExecutionOutcome.Success)) {
+                      onToken(partial, true, thought)
+                      nativeCompletion.countDown()
+                    }
+                  } else if (execution.outcome() == null) {
+                    onToken(partial, false, thought)
+                  }
                 },
                 { error ->
-                  if (errorOccurred.compareAndSet(false, true)) onError(error)
-                  latch.countDown()
+                  if (execution.trySetOutcome(ExecutionOutcome.Error(error))) {
+                    onError(error)
+                    nativeCompletion.countDown()
+                  }
                 },
               )
             }) return@synchronized
 
-          val completed = latch.await(timeoutSeconds, TimeUnit.SECONDS)
-          if (!completed) {
-            if (errorOccurred.compareAndSet(false, true)) onError("timeout")
-            execution.cancel()
-          } else if (errorOccurred.get() || externallyCancelled.get()) {
-            execution.cancel()
+          val completed = nativeCompletion.await(timeoutSeconds, TimeUnit.SECONDS)
+          if (!completed && execution.trySetOutcome(ExecutionOutcome.Timeout)) {
+            onError("timeout")
           }
           if (execution.beginRecovery()) operation.recover()
         } catch (t: Throwable) {
           if (t is OutOfMemoryError) System.gc()
           onCaughtThrowable?.invoke(t)
-          if (errorOccurred.compareAndSet(false, true)) {
-            onError(t.message ?: "unknown_error")
-          }
-          try {
-            execution.cancel()
-          } catch (cancelError: Throwable) {
-            Log.w(TAG, "Native streaming cancellation failed", cancelError)
+          val message = t.message ?: "unknown_error"
+          if (execution.trySetOutcome(ExecutionOutcome.Error(message))) {
+            onError(message)
+            nativeCompletion.countDown()
           }
           if (execution.beginRecovery()) operation.recover()
         } finally {
@@ -286,7 +344,9 @@ object InferenceGateway {
     },
     elapsedMs = elapsedMs,
     onCaughtThrowable = onCaughtThrowable,
-    onCancellationReady = onCancellationReady,
+    onCancellationReady = if (onCancellationReady == null) null else { cancel ->
+      onCancellationReady.invoke { cancel(CancellationReason.EXTERNAL) }
+    },
   )
 
   internal suspend fun execute(
@@ -296,18 +356,15 @@ object InferenceGateway {
     operation: NativeOperation,
     elapsedMs: () -> Long,
     onCaughtThrowable: ((Throwable) -> Unit)? = null,
-    onCancellationReady: ((cancel: () -> Unit) -> Unit)? = null,
+    onCancellationReady: ((cancel: (CancellationReason) -> Unit) -> Unit)? = null,
   ): InferenceResult {
     val sb = StringBuilder()
     val thinkingSb = StringBuilder()
-    val inferenceLatch = CountDownLatch(1)
-    val lifecycleLatch = CountDownLatch(1)
+    val nativeCompletion = CountDownLatch(1)
+    val lifecycleFinished = CountDownLatch(1)
     val execution = InferenceExecution(operation::cancel)
-    val error = AtomicReference<String?>(null)
-    onCancellationReady?.invoke {
-      error.compareAndSet(null, "client_disconnected")
-      inferenceLatch.countDown()
-      execution.cancel()
+    onCancellationReady?.invoke { reason ->
+      if (execution.trySetOutcome(reason.toOutcome())) nativeCompletion.countDown()
     }
     val startMs = elapsedMs()
     var firstTokenMs: Long? = null
@@ -320,41 +377,48 @@ object InferenceGateway {
           val dispatched = execution.dispatch {
             operation.dispatch(
               { partial, done, thought ->
-                if (partial.isNotEmpty()) {
-                  if (firstTokenMs == null) {
-                    firstTokenMs = elapsedMs() - startMs
+                if (done) {
+                  if (execution.trySetOutcome(ExecutionOutcome.Success)) {
+                    if (partial.isNotEmpty()) {
+                      if (firstTokenMs == null) firstTokenMs = elapsedMs() - startMs
+                      sb.append(partial)
+                    }
+                    if (!thought.isNullOrEmpty()) thinkingSb.append(thought)
+                    nativeCompletion.countDown()
                   }
-                  sb.append(partial)
+                } else if (execution.outcome() == null) {
+                  if (partial.isNotEmpty()) {
+                    if (firstTokenMs == null) firstTokenMs = elapsedMs() - startMs
+                    sb.append(partial)
+                  }
+                  if (!thought.isNullOrEmpty()) thinkingSb.append(thought)
                 }
-                if (!thought.isNullOrEmpty()) {
-                  thinkingSb.append(thought)
-                }
-                if (done) inferenceLatch.countDown()
               },
-              { e -> error.compareAndSet(null, e); inferenceLatch.countDown() },
+              { message ->
+                if (execution.trySetOutcome(ExecutionOutcome.Error(message))) {
+                  nativeCompletion.countDown()
+                }
+              },
             )
           }
           if (!dispatched) return@synchronized
-          val completed = inferenceLatch.await(timeoutSeconds, TimeUnit.SECONDS)
-          if (!completed && error.get() == null) {
-            error.compareAndSet(null, "timeout")
-            execution.cancel()
-            if (execution.beginRecovery()) operation.recover()
-          } else if (error.get() != null) {
-            execution.cancel()
-            if (execution.beginRecovery()) operation.recover()
-          }
+          val completed = nativeCompletion.await(timeoutSeconds, TimeUnit.SECONDS)
+          if (!completed) execution.trySetOutcome(ExecutionOutcome.Timeout)
+          if (execution.beginRecovery()) operation.recover()
         } catch (t: Throwable) {
           if (t is OutOfMemoryError) System.gc()
           onCaughtThrowable?.invoke(t)
-          error.compareAndSet(null, t.message ?: "unknown_error")
-          inferenceLatch.countDown()
+          val message = t.message ?: "unknown_error"
+          if (execution.trySetOutcome(ExecutionOutcome.Error(message))) {
+            nativeCompletion.countDown()
+          }
+          if (execution.beginRecovery()) operation.recover()
         } finally {
           try { operation.finish() } catch (t: Throwable) {
             Log.w(TAG, "NativeOperation.finish() failed", t)
           }
           execution.finish()
-          lifecycleLatch.countDown()
+          lifecycleFinished.countDown()
         }
       }
     }
@@ -362,32 +426,34 @@ object InferenceGateway {
     try {
       withContext(Dispatchers.IO) {
         runInterruptible {
-          val completed = lifecycleLatch.await(timeoutSeconds + 5, TimeUnit.SECONDS)
-          if (!completed) {
-            error.compareAndSet(null, "timeout")
+          val completed = lifecycleFinished.await(timeoutSeconds + 5, TimeUnit.SECONDS)
+          if (!completed && execution.trySetOutcome(ExecutionOutcome.Timeout)) {
+            nativeCompletion.countDown()
           }
         }
       }
     } catch (_: InterruptedException) {
-      error.compareAndSet(null, "client_disconnected")
-      inferenceLatch.countDown()
-      execution.cancel()
-      lifecycleLatch.await(timeoutSeconds + 5, TimeUnit.SECONDS)
+      if (execution.trySetOutcome(ExecutionOutcome.CallerCancelled)) {
+        nativeCompletion.countDown()
+      }
+      lifecycleFinished.await(timeoutSeconds + 5, TimeUnit.SECONDS)
     } catch (_: CancellationException) {
-      error.compareAndSet(null, "client_disconnected")
-      inferenceLatch.countDown()
-      execution.cancel()
-      lifecycleLatch.await(timeoutSeconds + 5, TimeUnit.SECONDS)
+      if (execution.trySetOutcome(ExecutionOutcome.CallerCancelled)) {
+        nativeCompletion.countDown()
+      }
+      lifecycleFinished.await(timeoutSeconds + 5, TimeUnit.SECONDS)
     }
     val totalMs = elapsedMs() - startMs
     val thinkingResult = thinkingSb.toString().takeIf { it.isNotEmpty() }
-    val finalError = error.get()
+    val finalOutcome = execution.outcome()
+    val finalError = finalOutcome?.errorMessage() ?: if (finalOutcome == null) "unknown_error" else null
+    val successful = finalOutcome?.isSuccessful() == true
     // On error, discard all accumulated tokens — SDK errors may leave the output buffer
     // in a corrupted/incomplete state. The streaming path (executeStreaming) preserves
     // partial output because tokens are already delivered to the client via onToken callbacks.
     return InferenceResult(
-      output = if (finalError != null) null else sb.toString(),
-      thinking = if (finalError != null) null else thinkingResult,
+      output = if (successful) sb.toString() else null,
+      thinking = if (successful) thinkingResult else null,
       error = finalError,
       totalMs = totalMs,
       ttfbMs = firstTokenMs ?: -1,

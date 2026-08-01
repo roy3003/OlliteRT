@@ -1045,7 +1045,7 @@ class InferenceRunner(
     val logId: String?,
     val streamStartMs: Long,
     val keepPartial: Boolean,
-    val cancelInference: () -> Unit,
+    val cancelInference: (InferenceGateway.CancellationReason) -> Unit,
     val onSuccessfulCompletion: () -> Unit,
   ) {
     val fullText = StringBuilder()
@@ -1139,7 +1139,7 @@ class InferenceRunner(
         fullText.append(currentText.substring(0, earliest))
         stopSequenceTriggered = true
         matchedStopSequence = matched
-        cancelInference()
+        cancelInference(InferenceGateway.CancellationReason.STOP_SEQUENCE)
       }
     }
 
@@ -1475,12 +1475,13 @@ class InferenceRunner(
     // Register cancel callback before any lock so queued requests are immediately cancellable.
     val userCancelFlag = AtomicBoolean(false)
     val channelRef = AtomicReference<Channel<StreamEvent>?>(null)
-    val cancellationActionRef = AtomicReference<(() -> Unit)?>(null)
+    val cancellationActionRef =
+      AtomicReference<((InferenceGateway.CancellationReason) -> Unit)?>(null)
     if (logId != null) {
       RequestLogStore.registerCancellation(logId) {
         userCancelFlag.set(true)
         channelRef.get()?.close()
-        cancellationActionRef.get()?.invoke()
+        cancellationActionRef.get()?.invoke(InferenceGateway.CancellationReason.EXTERNAL)
       }
     }
 
@@ -1511,7 +1512,7 @@ class InferenceRunner(
         logId,
         streamStartMs,
         keepPartial,
-        cancelInference = { cancellationActionRef.get()?.invoke() },
+        cancelInference = { reason -> cancellationActionRef.get()?.invoke(reason) },
         onSuccessfulCompletion = onSuccessfulCompletion,
       )
 
@@ -1642,7 +1643,7 @@ class InferenceRunner(
           cancellationActionRef.set(cancel)
           if (userCancelFlag.get()) {
             channel.close()
-            cancel()
+            cancel(InferenceGateway.CancellationReason.EXTERNAL)
           }
         },
         onCaughtThrowable = { t -> emitDebugStackTrace(t, format.sourceTag, model.name) },
@@ -1661,7 +1662,7 @@ class InferenceRunner(
               Log.i(TAG, "STREAM_DISCONNECT requestId=$requestId endpoint=$endpoint elapsedMs=$elapsedMs " +
                 "firstTokenMs=${state.firstTokenMs} headerWritten=${state.headerWritten} " +
                 "fullText.len=${state.fullText.length} fullThinking.len=${state.fullThinking.length}")
-              cancellationActionRef.get()?.invoke()
+              cancellationActionRef.get()?.invoke(InferenceGateway.CancellationReason.CALLER)
               state.markCompleted()
               state.logCancellation()
               format.emitCancellation(writer, state.headerWritten)
@@ -1703,7 +1704,7 @@ class InferenceRunner(
         }
       } catch (_: kotlinx.coroutines.CancellationException) {
         // Ktor cancelled the coroutine (client disconnect or withTimeout expired) — clean up
-        cancellationActionRef.get()?.invoke()
+        cancellationActionRef.get()?.invoke(InferenceGateway.CancellationReason.CALLER)
         channel.close()
         if (!state.inferenceCompleted) {
           // Finalize the log entry (isPending=false, isCancelled, 499) so it doesn't
