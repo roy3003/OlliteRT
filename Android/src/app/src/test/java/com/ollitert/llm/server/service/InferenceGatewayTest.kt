@@ -670,6 +670,7 @@ class InferenceGatewayTest {
             finishCalls.incrementAndGet()
           }
         },
+        elapsedMs = { 0L },
         onCancellationReady = { cancel ->
           externalCancel.set { cancel(InferenceGateway.CancellationReason.EXTERNAL) }
         },
