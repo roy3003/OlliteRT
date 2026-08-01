@@ -412,6 +412,96 @@ class InferenceGatewayTest {
     assertEquals(listOf("answer"), tokens)
   }
 
+  // ── Terminal authority tests ──────────────────────────────────────────────
+
+  @Test
+  fun executionStateChoosesOneTerminalOutcomeUnderRace() {
+    val cancelCalls = AtomicInteger(0)
+    val execution = InferenceGateway.InferenceExecution { cancelCalls.incrementAndGet() }
+    assertTrue(execution.beginPreparation())
+    assertTrue(execution.dispatch {})
+
+    val contenders = listOf(
+      InferenceGateway.ExecutionOutcome.Success,
+      InferenceGateway.ExecutionOutcome.Timeout,
+      InferenceGateway.ExecutionOutcome.CallerCancelled,
+      InferenceGateway.ExecutionOutcome.ExternalCancelled,
+      InferenceGateway.ExecutionOutcome.StopSequence,
+      InferenceGateway.ExecutionOutcome.Error("native_error"),
+    )
+    val ready = CountDownLatch(contenders.size)
+    val start = CountDownLatch(1)
+    val finished = CountDownLatch(contenders.size)
+    val winners = java.util.Collections.synchronizedList(
+      mutableListOf<InferenceGateway.ExecutionOutcome>(),
+    )
+    val racers = Executors.newFixedThreadPool(contenders.size)
+
+    try {
+      contenders.forEach { outcome ->
+        racers.execute {
+          ready.countDown()
+          start.await()
+          if (execution.trySetOutcome(outcome)) winners += outcome
+          finished.countDown()
+        }
+      }
+      assertTrue("terminal contenders did not become ready", ready.await(2, TimeUnit.SECONDS))
+      start.countDown()
+      assertTrue("terminal contenders did not finish", finished.await(2, TimeUnit.SECONDS))
+
+      assertEquals("exactly one terminal outcome must win", 1, winners.size)
+      assertEquals(winners.single(), execution.outcome())
+      assertTrue("native cancel may run at most once", cancelCalls.get() <= 1)
+    } finally {
+      start.countDown()
+      racers.shutdownNow()
+    }
+  }
+
+  @Test
+  fun normalCompletionCannotBeOverwrittenByExternalCancellation() = runBlocking {
+    val externalCancel = AtomicReference<(() -> Unit)?>(null)
+    val cancelCalls = AtomicInteger(0)
+    val recoverCalls = AtomicInteger(0)
+
+    val result = InferenceGateway.execute(
+      timeoutSeconds = 30,
+      executor = directExecutor,
+      inferenceLock = lock,
+      operation = object : InferenceGateway.NativeOperation {
+        override fun prepare() = Unit
+
+        override fun dispatch(
+          onPartial: (partial: String, done: Boolean, thought: String?) -> Unit,
+          onError: (message: String) -> Unit,
+        ) {
+          onPartial("complete", true, null)
+          externalCancel.get()!!.invoke()
+        }
+
+        override fun cancel() {
+          cancelCalls.incrementAndGet()
+        }
+
+        override fun recover() {
+          recoverCalls.incrementAndGet()
+        }
+
+        override fun finish() = Unit
+      },
+      elapsedMs = { tick() },
+      onCancellationReady = { cancel -> externalCancel.set { cancel(
+        InferenceGateway.CancellationReason.EXTERNAL,
+      ) } },
+    )
+
+    assertEquals("complete", result.output)
+    assertNull(result.error)
+    assertEquals(0, cancelCalls.get())
+    assertEquals(0, recoverCalls.get())
+  }
+
   // ── Cancellation tests ──────────────────────────────────────────────────
 
   @Test
