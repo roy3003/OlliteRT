@@ -253,7 +253,10 @@ object InferenceGateway {
     val nativeCompletion = CountDownLatch(1)
     val execution = InferenceExecution(operation::cancel)
     onCancellationReady?.invoke { reason ->
-      if (execution.trySetOutcome(reason.toOutcome())) nativeCompletion.countDown()
+      if (execution.trySetOutcome(reason.toOutcome())) {
+        if (reason == CancellationReason.STOP_SEQUENCE) onToken("", true, null)
+        nativeCompletion.countDown()
+      }
     }
 
     executor.execute {
