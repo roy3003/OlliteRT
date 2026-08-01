@@ -29,9 +29,11 @@ This revision is deliberately static. It does not implement breathing, carousel 
 - A 1dp low-emphasis vertical divider between PROCESSING lower columns.
 - Request/error count grouping retained through 99,999.
 - Grouping comma rendered with narrower proportional punctuation advance instead of a full monospace digit cell.
-- Main request and RUNNING error values fixed at 20sp.
-- PROCESSING `proc` and `last` values fixed at 16sp.
-- Labels and `s`/`ms` unit suffixes fixed at 10sp.
+- Main request and RUNNING error values use a fixed 20dp-equivalent Canvas text size.
+- PROCESSING `proc` and `last` values use a fixed 16dp-equivalent Canvas text size and fixed `textScaleX = 0.68`.
+- Labels and `s`/`ms` unit suffixes use a fixed 10dp-equivalent Canvas text size; PROCESSING units share the same fixed horizontal scale as their value run.
+- These custom-Canvas sizes multiply by display `density`, not `scaledDensity`; the fixed geometry does not resize with the user's font-scale setting. Full screen-reader wording remains mandatory through `contentDescription`.
+- Each complete PROCESSING value-plus-unit run SHALL measure at most 40dp after the fixed horizontal scale is applied.
 - Existing one-second metric and elapsed refresh cadence retained.
 
 ### Out
@@ -56,7 +58,7 @@ This revision is deliberately static. It does not implement breathing, carousel 
 - The top block always shows `req` and request count.
 - RUNNING shows centered error count plus `err` in the lower block.
 - PROCESSING shows centered current elapsed seconds plus `proc` in the lower block.
-- Values use 18sp bold monospace; labels and the seconds suffix use 10sp.
+- Values use an 18dp-equivalent bold monospace Canvas size; labels and the seconds suffix use 10dp-equivalent Canvas sizes.
 - Request/error counts retain comma grouping and cap as `99,999+`.
 - Because the whole count uses a monospace typeface, the ASCII comma consumes a full digit-width cell.
 - No previous-latency value is present in the overlay.
@@ -128,7 +130,7 @@ This revision is deliberately static. It does not implement breathing, carousel 
 
 - Type: MODIFIED
 - Before: RUNNING shows `req` plus request count in the top block and `err` plus error count in the centered lower block.
-- After: RUNNING retains that same information hierarchy and full-width lower error metric, adjusted only for the smaller geometry, new palette, 20sp main values, and narrow-comma drawing.
+- After: RUNNING retains that same information hierarchy and full-width lower error metric, adjusted only for the smaller geometry, new palette, fixed 20dp-equivalent main Canvas values, and narrow-comma drawing.
 - Reason: Preserve immediate request/error observability and avoid adding irrelevant previous latency while idle.
 - Affected actors/contracts: RUNNING Canvas baselines and visual tests.
 
@@ -144,9 +146,9 @@ This revision is deliberately static. It does not implement breathing, carousel 
 
 - Type: MODIFIED
 - Before: PROCESSING uses the entire centered lower area for current elapsed seconds and `proc`.
-- After: PROCESSING retains grouped `req` in the top block. Its lower area has two equal logical columns: left `proc`, right `last`, separated by a centered 1dp vertical divider. Values sit above their labels. RUNNING does not use this split.
-- Reason: Compare current elapsed time with the previous successful latency without carousel delay or additional View height.
-- Affected actors/contracts: PROCESSING Canvas geometry, divider paint, render model, and visual tests.
+- After: PROCESSING retains grouped `req` in the top block. Its lower area has two equal logical columns centered at 25% and 75% of View width: left `proc`, right `last`. Each complete value-plus-unit run uses the existing bold monospace family with fixed `textScaleX = 0.68`, is centered as one measured composite run, and SHALL be no wider than 40dp. PROCESSING value and label baselines are 66% and 78% of View height so their glyph bounds remain above approximately 80dp, before the point-bottom hexagon narrows sharply. A centered 1dp divider uses `0x33000000` from 54% through 80% of View height. Values sit above their labels. RUNNING does not use this split and retains its existing full-width lower baselines.
+- Reason: Compare current elapsed time with the previous successful latency without carousel delay or additional View height, while fitting the already-approved bounded strings in an 88dp View.
+- Affected actors/contracts: PROCESSING Canvas geometry, fixed lower-run horizontal scale, divider paint, render model, and visual tests.
 
 #### Scenario: PROCESSING exposes current and previous timing together
 
@@ -160,9 +162,9 @@ This revision is deliberately static. It does not implement breathing, carousel 
 ### D-06 — Format current processing elapsed compactly
 
 - Type: MODIFIED
-- Before: Current processing elapsed is a centered 18sp value with a separate 10sp `s` suffix and a `9999+` cap.
-- After: Current elapsed remains whole seconds with a separate 10sp `s` suffix and the existing `9999+` cap, but uses a fixed 16sp value in the left PROCESSING column.
-- Reason: Preserve the existing elapsed semantics while fitting two stable columns.
+- Before: Current processing elapsed is a centered 18dp-equivalent Canvas value with a separate 10dp-equivalent `s` suffix and a `9999+` cap.
+- After: Current elapsed remains whole seconds with a separate 10dp-equivalent `s` suffix and the existing `9999+` cap, but uses a fixed 16dp-equivalent Canvas value and fixed `textScaleX = 0.68` in the left PROCESSING column. The measured composite value-plus-unit run SHALL be centered and no wider than 40dp.
+- Reason: Preserve the existing elapsed semantics while fitting two stable columns without runtime-dependent font shrinking.
 - Affected actors/contracts: Processing elapsed formatter, left-column centering, and boundary tests.
 
 #### Scenario: Proc remains current-request elapsed
@@ -177,13 +179,14 @@ This revision is deliberately static. It does not implement breathing, carousel 
 
 - Type: ADDED
 - Before: The overlay does not display `lastLatencyMs`.
-- After: The PROCESSING right column displays the existing previous successful `lastLatencyMs` using deterministic compact formatting:
+- After: The PROCESSING right column displays a latency snapshot latched once when a new PROCESSING `inferenceSequence` begins. That snapshot reads the then-current successful `lastLatencyMs` and remains unchanged for the whole sequence even if the live metric updates before PROCESSING settles. It uses deterministic compact formatting:
   - zero or absent: `—`, with no unit;
   - `1..9999ms`: exact integer milliseconds with a separate `ms` suffix;
   - `10000..999999ms`: seconds truncated to one decimal place with a separate `s` suffix, producing `10.0..999.9`;
   - `1000000ms` or greater: `999+` with a separate `s` suffix.
-- Reason: Preserve millisecond precision for short requests while bounding text width for longer LLM generations.
-- Affected actors/contracts: Controller metric snapshot, render model, right-column formatter, unit paint, and accessibility output.
+  Decimal construction SHALL use integer arithmetic and an ASCII `.`; it SHALL NOT depend on the process locale or runtime text measurement.
+- Reason: Preserve millisecond precision for short requests, guarantee that `last` means the request before the current sequence, and bound text width for longer LLM generations.
+- Affected actors/contracts: Controller inference-sequence snapshot, render model, right-column formatter, unit paint, and accessibility output.
 
 #### Scenario: First inference has no previous successful latency
 
@@ -201,31 +204,43 @@ This revision is deliberately static. It does not implement breathing, carousel 
 
 #### Scenario: Last remains previous successful work during processing
 
-- GIVEN request A completed successfully and request B is now PROCESSING
-- WHEN the monitor draws request B
-- THEN `last` SHALL show request A's recorded latency
+- GIVEN request A completed successfully and request B enters a new PROCESSING `inferenceSequence`
+- WHEN the controller snapshots `lastLatencyMs` for request B
+- THEN `last` SHALL show request A's recorded latency for the whole B sequence
+- AND a later live latency update during B SHALL NOT replace the latched value
 - AND completion, error, or cancellation semantics SHALL not be inferred in the visual layer.
 
 ### D-08 — Establish fixed visual hierarchy and contrast
 
 - Type: MODIFIED
-- Before: Main values are 18sp and all text is opaque black.
+- Before: Main values use an 18dp-equivalent Canvas text size and all text is opaque black.
 - After:
-  - grouped `req` and RUNNING `err` values are fixed 20sp;
-  - PROCESSING `proc` and `last` values are fixed 16sp;
-  - labels and unit suffixes are fixed 10sp;
+  - grouped `req` and RUNNING `err` values use a fixed 20dp-equivalent Canvas text size;
+  - PROCESSING `proc` and `last` values use a fixed 16dp-equivalent Canvas text size with `textScaleX = 0.68`;
+  - labels and unit suffixes use a fixed 10dp-equivalent Canvas text size; PROCESSING units share `textScaleX = 0.68`;
+  - custom Canvas text remains font-scale-independent because the fixed 88 × 100dp geometry uses display `density`, not `scaledDensity`;
   - ordinary content uses opaque black `#000000`;
   - `last` label, value, dash, and unit use 85% black `#D9000000`;
-  - no value dynamically shrinks.
-- Reason: Keep primary request/current-state content dominant while making historical latency visibly secondary.
+  - no value-dependent or runtime-computed text scale is permitted.
+- Reason: Keep primary request/current-state content dominant while making historical latency visibly secondary and enforcing one deterministic lower-run fit policy.
 - Affected actors/contracts: Text paints, baselines, value centering, and longest-string tests.
 
-#### Scenario: Long values fit without dynamic scaling
+#### Scenario: Long values fit with one fixed lower-run scale
 
 - GIVEN `99,999+` in the top block, `9999+ s` in the left lower column, and `999.9 s` or `999+ s` in the right lower column
 - WHEN PROCESSING draws at 88 × 100dp
-- THEN all content SHALL remain inside the visible hexagon without clipping or overlap
-- AND font sizes SHALL remain fixed.
+- THEN every complete lower value-plus-unit run SHALL measure at most 40dp with fixed `textScaleX = 0.68`
+- AND all content SHALL remain inside the visible hexagon without clipping or overlap
+- AND neither text size nor horizontal scale SHALL vary by value or runtime measurement.
+
+#### Scenario: State descriptions remain complete and actionable
+
+- GIVEN the custom Canvas monitor is exposed to accessibility services
+- WHEN RUNNING is rendered
+- THEN its `contentDescription` SHALL speak the state, requests, and errors using full words
+- AND WHEN PROCESSING is rendered
+- THEN its `contentDescription` SHALL speak the state, requests, current elapsed in seconds, and last successful latency in milliseconds/seconds or “no previous successful latency”
+- AND the existing accessible click action SHALL remain available.
 
 ### D-09 — Keep visual refresh independent from server behavior
 
@@ -261,22 +276,22 @@ This revision is deliberately static. It does not implement breathing, carousel 
 | D-02 | Paint constants | JVM visual-contract test | State hues match; only fill uses `0xCC`; edge/text remain opaque |
 | D-03 | Count formatter and composite text measurement | JVM boundaries plus bounded screenshot | Grouping/caps are exact, comma is narrower than a digit cell, full text remains centered |
 | D-04 | RUNNING render model/View | JVM model test plus screenshot | Only req and centered err appear; no split, last, or units appear |
-| D-05 | PROCESSING layout helper | JVM geometry test plus screenshot | Lower columns and 1dp divider are stable, non-overlapping, and correctly labeled |
-| D-06 | Processing elapsed formatter | JVM boundary/sequence tests | Whole seconds and `9999+` semantics remain unchanged; left value is fixed 16sp |
-| D-07 | Previous latency formatter | JVM tests at 0, 842, 9999, 10000, 12449, 999999, and 1000000ms | Outputs exactly match the deterministic unit/cap contract |
-| D-07 | Metric source | Source review and render-model test | PROCESSING reads existing `lastLatencyMs`; avg/error/cancel inference is absent |
-| D-08 | Text constants and Canvas measurement | JVM contract plus longest-string screenshot | 20sp/16sp/10sp hierarchy and `0xD9` last tint fit without dynamic scaling |
+| D-05 | PROCESSING layout helper | JVM geometry/measurement test plus bounded screenshot | Column centers, 66%/78% baselines, `0x33000000` divider endpoints, and ≤40dp lower runs are stable and non-overlapping |
+| D-06 | Processing elapsed formatter | JVM boundary/sequence tests | Whole seconds and `9999+` semantics remain unchanged; left value uses fixed 16dp-equivalent size and `textScaleX = 0.68` |
+| D-07 | Previous latency formatter | JVM tests at 0, 842, 9999, 10000, 12449, 999999, and 1000000ms under a non-dot default locale | Outputs exactly match the ASCII-dot deterministic unit/cap contract |
+| D-07 | Metric source | Latch/render-model test | Each new PROCESSING `inferenceSequence` snapshots existing `lastLatencyMs` once; later live updates do not replace it; avg/error/cancel inference is absent |
+| D-08 | Text constants, Canvas measurement, and content description | JVM contract plus longest-string/accessibility checks | Fixed density-scaled 20/16/10 hierarchy, fixed lower `textScaleX`, `0xD9` last tint, ≤40dp runs, complete spoken metrics, and click action are preserved |
 | D-09 | Controller/View lifecycle | Source review and focused lifecycle tests | One-second cadence is unchanged; no animator, carousel timer, or per-frame WindowManager work exists |
 | D-01–D-09 | Real-device visual acceptance | Short bounded RUNNING/PROCESSING recording when authorized | Colors, narrow comma, split layout, units, fit, and state transitions match the contract |
 
 ## Risks and Mitigations
 
 - The smaller PROCESSING lower half has limited horizontal width.
-  - Mitigation: fixed 16sp secondary values, small separate units, deterministic last-unit conversion, and longest-string validation before implementation closure.
+  - Mitigation: fixed `textScaleX = 0.68`, ≤40dp measured composite runs, 66%/78% PROCESSING baselines, small separate units, deterministic last-unit conversion, and longest-string validation.
 - Mixed stable-width digits and proportional comma punctuation can be miscentered if widths are estimated rather than measured.
   - Mitigation: center the measured composite run and test every grouping boundary.
-- `lastLatencyMs` remains stale after a failed/cancelled request because it records the latest successful latency.
-  - Mitigation: label it `last`, document the successful-request semantics, and do not fabricate error/cancellation duration in the visual layer.
+- `lastLatencyMs` updates on successful completion and remains stale after a failed/cancelled request.
+  - Mitigation: snapshot it once per new PROCESSING `inferenceSequence`; label it `last`, retain that snapshot for the sequence, and do not infer error/cancellation duration in the visual layer.
 - The latest successful value is hidden while RUNNING and becomes visible only during the next PROCESSING request.
   - Mitigation: this is the approved compare-current-versus-previous design; the full Status screen remains the durable latency surface.
 - A translucent state fill inherits some variation from the underlying App.
@@ -284,7 +299,7 @@ This revision is deliberately static. It does not implement breathing, carousel 
 
 ## Open Questions
 
-None required before source/JVM implementation. Exact pixel fit remains a validation gate, not permission for dynamic font scaling or an undocumented geometry change.
+None required before focused source/JVM implementation review. The fixed 0.68 lower-run scale, 40dp width bound, and PROCESSING baselines are part of the contract; a failed fit check blocks implementation and is not permission for dynamic scaling or geometry expansion.
 
 ## Handoff
 
@@ -295,4 +310,4 @@ None required before source/JVM implementation. Exact pixel fit remains a valida
 - Inactive alternative: `openspec/changes/add-background-floating-monitor/floating-monitor-breathing-carousel-delta.md`
 - Suggested next skill: `gm-tdd`
 - Review depth: moderate because fixed-width grouped text and two compact PROCESSING columns must be measured honestly
-- Implementation approval status: visual behavior approved in conversation; production implementation not started by this document
+- Implementation approval status: focused independent re-review APPROVE; production implementation not started by this document

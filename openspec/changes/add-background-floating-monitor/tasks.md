@@ -58,12 +58,12 @@ The active contract is `floating-monitor-visual-delta.md`. The breathing/carouse
 
 Implement these as focused RED → minimal GREEN slices:
 
-- [ ] RED/GREEN: compact previous-latency formatter (`—`, exact `ms`, one-decimal `s`, and cap).
+- [ ] RED/GREEN: compact previous-latency formatter (`—`, exact `ms`, ASCII-dot one-decimal `s`, and cap).
 - [ ] RED/GREEN: grouped request/error drawing retains commas while punctuation uses a narrower proportional advance.
-- [ ] RED/GREEN: render model/controller exposes existing `lastLatencyMs` only as previous successful latency.
+- [ ] RED/GREEN: controller latches existing `lastLatencyMs` once per new PROCESSING `inferenceSequence`; render model exposes that previous-success snapshot.
 - [ ] RED/GREEN: View uses 88 × 100dp, approved palette/alpha, fixed type hierarchy, and unchanged RUNNING information layout.
 - [ ] RED/GREEN: changed dimensions preserve normalized-position restoration and clamp geometry across rotation/inset changes.
-- [ ] RED/GREEN: PROCESSING lower area renders `proc | last` with fixed columns, smaller units, divider, and no clipping at caps.
+- [ ] RED/GREEN: PROCESSING lower area renders `proc | last` with fixed 25%/75% centers, 66%/78% baselines, `textScaleX = 0.68`, ≤40dp composite runs, smaller units, divider, and no clipping at caps.
 - [ ] Verify that no breathing, carousel timer, new polling loop, average latency, Logo, or inference lifecycle behavior is introduced.
 
 ## Final verification
