@@ -23,6 +23,7 @@ data class FloatingMonitorRenderModel(
   val requestValue: String,
   val secondaryValue: String,
   val secondaryLabel: String,
+  val lastLatency: FloatingMonitorLatencyText? = null,
 )
 
 fun deriveFloatingMonitorRenderModel(
@@ -30,6 +31,7 @@ fun deriveFloatingMonitorRenderModel(
   requestCount: Long,
   errorCount: Long,
   processingElapsedMillis: Long?,
+  previousSuccessfulLatencyMs: Long = 0L,
 ): FloatingMonitorRenderModel? {
   if (visualState == FloatingMonitorVisualState.Hidden) return null
 
@@ -46,8 +48,32 @@ fun deriveFloatingMonitorRenderModel(
       FloatingMonitorVisualState.Processing -> "proc"
       FloatingMonitorVisualState.Hidden -> error("Hidden was handled above")
     },
+    lastLatency = when (visualState) {
+      FloatingMonitorVisualState.Running -> null
+      FloatingMonitorVisualState.Processing ->
+        formatPreviousSuccessfulLatency(previousSuccessfulLatencyMs)
+      FloatingMonitorVisualState.Hidden -> error("Hidden was handled above")
+    },
   )
 }
+
+fun floatingMonitorContentDescription(model: FloatingMonitorRenderModel): String =
+  when (model.visualState) {
+    FloatingMonitorVisualState.Running ->
+      "Running, requests ${model.requestValue}, errors ${model.secondaryValue}"
+    FloatingMonitorVisualState.Processing -> {
+      val lastLatency = model.lastLatency
+      val lastDescription = when (lastLatency?.unit) {
+        "ms" -> "${lastLatency.value} milliseconds"
+        "s" -> "${lastLatency.value} seconds"
+        else -> "unavailable"
+      }
+      "Processing, requests ${model.requestValue}, " +
+        "current processing ${model.secondaryValue} seconds, " +
+        "last successful latency $lastDescription"
+    }
+    FloatingMonitorVisualState.Hidden -> error("Hidden render models are not created")
+  }
 
 interface FloatingMonitorWindowPort {
   val isAttached: Boolean

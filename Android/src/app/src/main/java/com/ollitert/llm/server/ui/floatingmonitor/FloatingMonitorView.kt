@@ -90,16 +90,7 @@ internal class FloatingMonitorView(
 
   fun render(nextModel: FloatingMonitorRenderModel) {
     model = nextModel
-    contentDescription = buildString {
-      append(nextModel.visualState.name)
-      append(", req ")
-      append(nextModel.requestValue)
-      append(", ")
-      append(nextModel.secondaryLabel)
-      append(' ')
-      append(nextModel.secondaryValue)
-      if (nextModel.visualState == FloatingMonitorVisualState.Processing) append('s')
-    }
+    contentDescription = floatingMonitorContentDescription(nextModel)
     invalidate()
   }
 

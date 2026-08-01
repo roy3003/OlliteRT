@@ -48,6 +48,7 @@ class FloatingMonitorController(
   private val appContext = context.applicationContext
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private val elapsedTracker = ProcessingElapsedTracker(SystemClock::elapsedRealtime)
+  private val previousSuccessfulLatencyLatch = PreviousSuccessfulLatencyLatch()
   private lateinit var reconciler: FloatingMonitorWindowReconciler
   private val window = AndroidFloatingMonitorWindow(appContext) { handleTap() }
   private val tapCoordinator = FloatingMonitorTapCoordinator(
@@ -126,6 +127,11 @@ class FloatingMonitorController(
       status = input.status,
       isInferring = input.isInferring,
     )
+    val previousSuccessfulLatencyMs = previousSuccessfulLatencyLatch.valueFor(
+      isProcessing = visualState == FloatingMonitorVisualState.Processing,
+      inferenceSequence = input.inferenceSequence,
+      liveLatencyMs = ServerMetrics.lastLatencyMs.value,
+    )
     val permissionGranted = try {
       Settings.canDrawOverlays(appContext)
     } catch (e: RuntimeException) {
@@ -148,6 +154,7 @@ class FloatingMonitorController(
         requestCount = ServerMetrics.requestCount.value,
         errorCount = ServerMetrics.errorCount.value,
         processingElapsedMillis = elapsedTracker.elapsedMillis(),
+        previousSuccessfulLatencyMs = previousSuccessfulLatencyMs,
       )
     } else {
       null
