@@ -6,13 +6,13 @@ This change fixes request timeout and cancellation without rewriting normal infe
 
 ### Requirement: Model admission protects selection from idle unload
 
-`ModelLifecycle` SHALL own an explicit request-admission lease independent of `ServerMetrics`. The common inference POST path SHALL acquire the lease before model selection and release it only after the complete blocking response or SSE writer lifecycle has settled.
+`ModelLifecycle` SHALL own an explicit request-admission lease independent of `ServerMetrics`. The common inference POST path SHALL acquire the lease before model selection and release it only after owner-sensitive work has settled: native owner completion/cancellation/recovery/finish, request/native configuration restoration, success-qualified cache publication, and every path that can still access model/native state. Ordinary blocking-response encoding, SSE channel close/drain, buffered delivery, and slow network I/O that cannot access model/native state SHALL remain outside the lease.
 
 Keep-alive timeout callbacks SHALL NOT unload or clean up a model while any request admission is active. Cancelling a Handler callback SHALL also invalidate a timeout already dispatched to background execution. Metrics MAY report processing state but SHALL NOT act as the model admission lock.
 
 When `rejectWhenBusy` is enabled, admission SHALL be an atomic try-acquire operation: a request is accepted only when no earlier request owns admission. When it is disabled, requests MAY acquire admission and queue. An admitted request therefore counts as busy before native generation starts; `ServerMetrics.isInferring` remains observability only.
 
-The admission count SHALL be checked while holding `keepAliveLock`, in the same critical section that clears and cleans up the active model. The lock order SHALL remain `keepAliveLock` → whole-generation `inferenceLock` → `InferenceExecution` state monitor. The admission count is not an additional lock.
+Admission acquire/try-acquire and the admission-count check SHALL be linearized while holding `keepAliveLock`, in the same critical section protocol that detaches the active model. If admission wins first, unload SHALL observe it and abort. If unload detaches first, the request SHALL observe post-unload lifecycle state and SHALL NOT select the detached model. Lease release SHALL run exactly once after the owner has left `inferenceLock` and the execution monitor; it SHALL then take `keepAliveLock` to decrement ownership and start any new idle period. The lock order SHALL remain `keepAliveLock` → whole-generation `inferenceLock` → `InferenceExecution` state monitor; the admission count is not an additional lock.
 
 #### Scenario: Idle timeout races with an admitted request
 
@@ -72,7 +72,7 @@ A running request SHALL deliver native cancellation at most once. Duplicate or l
 
 On timeout, cancellation, native error, or a dispatch failure that may have committed native work, the owner SHALL request native cancellation when applicable and perform request recovery. Recovery SHALL restore per-request configuration and reset or recover Conversation state before lifecycle ownership is released.
 
-The caller SHALL await lifecycle settlement without a secondary `timeout + grace` early-return path. Metrics SHALL remain processing until recovery and operation finish complete. Preparation, dispatch, cancellation, recovery, and finish failures SHALL still leave the execution in one terminal state and SHALL not skip required recovery.
+The caller SHALL await lifecycle settlement without a secondary `timeout + grace` early-return path. Metrics SHALL remain processing until recovery and operation finish complete. Preparation, dispatch, cancellation, recovery, and finish failures SHALL still leave the execution in one terminal state and SHALL not skip required recovery. If recovery or finish itself fails, the lane SHALL fail closed: later requests SHALL NOT prepare against the uncertain Engine/Conversation and SHALL receive deterministic unavailable/error behavior until a safe recovery or replacement/quarantine makes that instance reusable or unreachable. Quarantine/replacement SHALL preserve the outer-to-inner lock order and SHALL NOT acquire `keepAliveLock` while an inner lifecycle lock is held.
 
 #### Scenario: Blocking request times out
 

@@ -4,7 +4,7 @@
 
 **Baseline:** `8ab20cb0ac43a825465752694b59f0e3907ac3e3`
 
-This is the short continuation plan. Complete each code group as one focused deterministic RED → minimal GREEN cycle. Do not archive this change until final CI, review, signed APK, and real-device evidence are complete.
+This is the short continuation plan. Complete each code group as one focused deterministic RED → minimal GREEN cycle. The current phase is source/JVM/CI-first; signed APK and real-device inference gates remain explicitly deferred until separately authorized. Do not archive this change until deferred runtime evidence is either completed or explicitly dispositioned.
 
 ## Completed and verified
 
@@ -21,15 +21,14 @@ This is the short continuation plan. Complete each code group as one focused det
 - [x] Add an initial keep-alive generation guard so already-dispatched stale timeout callbacks can be invalidated.
 - [x] GitHub Actions `30334882872`: stableDebug compile, JVM tests, and Android lint passed at code commit `0dc2996c`.
 
-## Gate 0: Verify the current direction on device
+## Deferred Gate 0: Verify the current direction on device
 
-Do this before more lifecycle code. Commit `168c293` already separated preparation from recovery and may have removed the primary stuck-counter symptom.
+Commit `168c293` already separated preparation from recovery and may have removed the primary stuck-counter symptom. The user has directed the current phase to inspect and harden source without loading a model, sending inference requests, or running a phone stress/timeout check.
 
-- [ ] Build a persistently signed APK from the current branch HEAD and record commit, artifact identity, and SHA-256.
-- [ ] Have the user install it through the phone installer if Flyme rejects ADB installation.
-- [ ] With Gemma-4-E4B-it, run a long blocking request to timeout.
-- [ ] Record whether native generation stops, `requests_processing` becomes `0`, the monitor returns to `RUNNING`, and a subsequent short request returns HTTP 200 without force-stop.
-- [ ] If this gate fails, stop and revise the diagnosis before hardening the state machine.
+- [x] Record Gate 0 as deferred rather than treating missing device evidence as source proof.
+- [ ] When separately authorized, build a persistently signed APK and record commit, artifact identity, and SHA-256.
+- [ ] When separately authorized, run the bounded Gemma timeout → processing zero → RUNNING → next HTTP 200 closure.
+- [ ] If that future gate fails, stop and revise the diagnosis before runtime acceptance.
 
 ## Remaining blocking lifecycle work
 
@@ -47,8 +46,10 @@ This group MUST precede removal of the lifecycle grace bound.
 - [ ] RED: cover preparation failure.
 - [ ] RED: cover synchronous dispatch failure that may have committed native work.
 - [ ] RED: cover cancellation, recovery, and finish failures reaching exactly one terminal state.
+- [ ] RED: force recovery/finish failure while a second request waits; prove the lane fails closed, the uncertain native instance is never reused, and the waiter receives deterministic unavailable/error behavior rather than hanging.
 - [ ] Ensure dispatch/cancel/recovery ownership remains exactly once when an operation throws.
 - [ ] Ensure configuration restoration, Conversation recovery when required, finish, and terminal notification cannot be skipped.
+- [ ] Quarantine or replace an uncertain Engine/Conversation before any later native preparation, without acquiring `keepAliveLock` under an inner lifecycle lock.
 
 ### 3. Remove blocking recovery early return
 
@@ -60,21 +61,15 @@ Begin only after group 2 proves every path reaches the lifecycle-finished signal
 
 ### 4. Complete model admission ownership
 
-- [ ] Record lock order: `keepAliveLock` → whole-generation `inferenceLock` → execution state monitor.
-- [ ] RED: prove idle unload cannot cross a request admitted before model selection.
-- [ ] RED: prove `rejectWhenBusy=true` atomically rejects a second admitted request rather than consulting metrics.
+- [ ] Record lock order: `keepAliveLock` → whole-generation `inferenceLock` → execution state monitor; release must leave inner locks before reacquiring `keepAliveLock`.
+- [ ] RED: barrier-control both admission-first and unload-first ordering; prove admission-first blocks unload and unload-first prevents selection of the detached model.
+- [ ] RED: hold request A's admission while request B performs `rejectWhenBusy=true` try-acquire; prove B is atomically rejected rather than consulting metrics.
 - [ ] Add a small `ModelLifecycle` request-admission lease/counter; do not use metrics as the resource lock.
-- [ ] Acquire before model selection. With reject disabled, allow admitted requests to queue; with reject enabled, use an atomic zero-owner try-acquire.
-- [ ] Release in `finally` only after the blocking response or full SSE writer lifecycle settles.
-- [ ] Under `keepAliveLock`, unload only when the timeout generation is current and active admission count is zero.
+- [ ] Acquire/try-acquire under `keepAliveLock` before model selection. With reject disabled, allow admitted requests to queue; with reject enabled, use an atomic zero-owner try-acquire.
+- [ ] Release exactly once in `finally`, after leaving `inferenceLock` and the execution monitor and after all owner-sensitive cleanup (owner settlement, request/native restoration, cache publication, and any remaining model/native access). Ordinary response encoding, SSE channel drain/close, and slow network delivery stay outside the lease.
+- [ ] Under `keepAliveLock`, unload only when the timeout generation is current and active admission count is zero; after the last release, start a new idle period instead of reusing the old timeout.
 
-## Gate 5: Verify settlement and admission on device
-
-- [ ] Repeat the Gemma timeout closure after groups 1–4.
-- [ ] Verify model idle unload cannot cross an admitted/queued request.
-- [ ] Verify `requests_processing=0`, monitor `RUNNING`, and a subsequent short HTTP 200 response.
-
-### 6. Make Ktor/SSE caller cancellation authoritative
+### 5. Make Ktor/SSE caller cancellation authoritative
 
 Keep this group last so its outer-timeout/caller-cancellation behavior can be reviewed or reverted independently.
 
@@ -92,10 +87,17 @@ Keep this group last so its outer-timeout/caller-cancellation behavior can be re
   - lifecycle state, dispatch/cancel, settlement, lock order, and model admission;
   - normal inference, errors, config, cache, metrics, API compatibility, and unnecessary complexity.
 - [ ] Resolve blocking review findings with focused RED → GREEN evidence.
-- [ ] Build the persistently signed dev APK and record artifact identity and SHA-256.
-- [ ] Have the user install through the phone installer if required.
-- [ ] Run final Gemma-4-E4B-it closure and smoke streaming disconnect, queued cancellation, stop sequence, and cache fallback.
+- [ ] Keep the persistently signed dev APK, install, Gemma closure, and streaming/device smoke deferred until separately authorized; do not represent compile/CI as runtime acceptance.
 - [ ] Keep production failure evidence for audit; retry production tasks by cloning rather than rewriting history.
+
+## Deferred Gate 5: Verify settlement and admission on device
+
+Run only when separately authorized and only after all five source groups, final review, and exact-HEAD CI are complete:
+
+- [ ] Repeat the Gemma timeout closure.
+- [ ] Verify model idle unload cannot cross an admitted/queued request.
+- [ ] Verify active SSE disconnect reaches cancellation and settlement without altering wire behavior.
+- [ ] Verify `requests_processing=0`, monitor `RUNNING`, and a subsequent short HTTP 200 response.
 
 ## Guardrails
 

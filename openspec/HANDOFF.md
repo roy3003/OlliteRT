@@ -1,6 +1,6 @@
 # Handoff: Floating Monitor and Minimal Inference Lifecycle
 
-**Updated:** 2026-07-30
+**Updated:** 2026-08-02
 
 **Working branch:** `fix/minimal-inference-lifecycle`
 
@@ -21,7 +21,9 @@ main (f4f7bf9)
        └─ fix/minimal-inference-lifecycle
             ├─ lifecycle code through 0dc2996c
             ├─ floating-monitor saved-intent, restart-copy, and bounded tap-recovery cleanup through 93486e9c
-            └─ tracked lifecycle documents through 79a84d53
+            ├─ tracked lifecycle documents through 79a84d53
+            ├─ active/inactive Floating monitor visual Deltas through d3b835f9
+            └─ obsolete event-driven-idle RED 783aac1f reverted by 46322dfa
 ```
 
 The endpoint-selector removal is deliberate. It is not a stray revert. The monitor and lifecycle work currently inherit that simplified baseline.
@@ -71,15 +73,15 @@ Execution phase plus a phase-owned outcome must become the sole authority for su
 
 ### Exception reachability before unbounded settlement
 
-Preparation, synchronous dispatch, cancellation, recovery, and finish failures must each reach exactly one terminal state. This evidence must land before removing the current `timeoutSeconds + 5` lifecycle backstop; otherwise an exception bug can become a permanent caller hang.
+Preparation, synchronous dispatch, cancellation, recovery, and finish failures must each reach exactly one terminal state. This evidence must land before removing the current `timeoutSeconds + 5` lifecycle backstop; otherwise an exception bug can become a permanent caller hang. If recovery or finish itself fails, the lane must fail closed: later requests receive deterministic unavailable/error behavior and cannot prepare against the uncertain Engine/Conversation until safe recovery or replacement/quarantine completes.
 
 ### Model request admission
 
-Generation invalidation is necessary but insufficient. `ModelLifecycle` needs a small active-admission counter acquired before model selection and released after the full blocking response or SSE writer settles.
+Generation invalidation is necessary but insufficient. `ModelLifecycle` needs a small active-admission lease acquired/try-acquired under `keepAliveLock` before model selection. The lease remains held through native owner settlement, request/native restoration, success-qualified cache publication, and every remaining path that can touch model/native state. It releases exactly once after leaving inner lifecycle locks and before ordinary response encoding, SSE channel close/drain, or slow network delivery.
 
 `rejectWhenBusy` uses atomic admission semantics:
 
-- enabled: accept only when no earlier request owns admission;
+- enabled: while a barrier-controlled earlier admission remains held, a second try-acquire is rejected;
 - disabled: acquire admission and permit serialized queueing.
 
 Metrics remain observability and never own model lifetime.
@@ -92,7 +94,7 @@ keepAliveLock
     → InferenceExecution state monitor
 ```
 
-The admission counter is not a lock. Keep-alive checks it under `keepAliveLock` in the same critical section that clears and cleans up the model.
+Admission acquire/try-acquire and unload's zero-admission check share `keepAliveLock`. Admission-first aborts unload; unload-first detaches the model before the request can select it. Lease release occurs after inner locks are left, then takes `keepAliveLock` to decrement ownership and begin a fresh idle period. The admission count is not an additional lock.
 
 ### SSE caller cancellation
 
@@ -102,20 +104,19 @@ The separate audio-transcription `NonCancellable` path is explicitly excluded. R
 
 ## 5. Safe continuation order
 
-Follow `openspec/changes/fix-minimal-inference-lifecycle/tasks.md`. The required order is:
+Follow `openspec/changes/fix-minimal-inference-lifecycle/tasks.md` and `serialized-inference-lane-delta.md`. The current source/JVM/CI-first order is:
 
 ```text
-Gate 0: signed APK and current-HEAD Gemma timeout check
-→ phase-owned terminal outcome
+phase-owned terminal outcome
 → deterministic exception paths
 → remove timeout + 5 early return
 → complete ModelRequestLease and rejectWhenBusy admission
-→ Gate 5: second Gemma/admission device check
 → SSE parent cancellation
-→ final dual-axis review, CI, signed APK, and smoke
+→ final dual-axis review and CI
+→ deferred signed APK and device gates only when separately authorized
 ```
 
-The first device gate is diagnostic, not final acceptance. Commit `168c293` may already have removed the primary stuck `requests_processing` symptom by separating preparation from recovery. If current HEAD still fails the timeout → zero → RUNNING → next HTTP 200 chain, stop and revise the diagnosis before more hardening.
+The device gates remain diagnostic and are not waived as final acceptance. They are deferred by the current instruction to avoid model loading, inference requests, phone stress, and timeout tests. Commit `168c293` may already have removed the primary stuck `requests_processing` symptom by separating preparation from recovery; that remains unverified at runtime.
 
 ## 6. Device acceptance contract
 
@@ -136,20 +137,19 @@ Compilation, tests, lint, and an installable APK are necessary but are not runti
 
 ## 7. Floating monitor status
 
-The monitor implementation is functionally complete and was CI-green at baseline `8ab20cb`. Its intended visual contract is now:
+The monitor baseline implementation was CI-green through production code commit `93486e9c`. The approved next visual contract is `openspec/changes/add-background-floating-monitor/floating-monitor-visual-delta.md`:
 
-- RUNNING full fill `#55D68B`;
-- PROCESSING full fill `#FFB74D`;
-- pure black `#000000` labels and values;
-- exact request/error counts through `99,999`, then `99,999+`;
-- current processing elapsed as centered plain seconds `0..9999`, then `9999+`;
-- a smaller separate `s` suffix that does not shift the numeric value;
-- elapsed resets for every inference sequence;
-- original foreground-service notification remains unchanged.
+- point-top hexagon at 88 × 100dp;
+- RUNNING fill `#4ADE80` and PROCESSING fill `#AFC6FF`, each at 80% fill alpha with an opaque same-hue 2dp edge;
+- grouped request/error counts retained, with narrower proportional comma punctuation;
+- RUNNING information layout unchanged (`req` above centered `err`);
+- PROCESSING lower area split into current `proc` on the left and previous successful `last` on the right;
+- fixed 20sp primary values, 16sp processing/last values, and 10sp labels/units;
+- `last` at 85% black, exact milliseconds below 10 seconds, then deterministic one-decimal seconds and a bounded cap;
+- no breathing, carousel, average latency, Logo, or new timer;
+- existing visible one-second metric/elapsed/permission/retry/WindowManager reconciliation cadence retained.
 
-One bounded review finding remains:
-
-1. idle visible RUNNING currently polls at 1 Hz instead of remaining event-driven.
+The alternative breathing/carousel design is preserved in `floating-monitor-breathing-carousel-delta.md` and explicitly marked INACTIVE.
 
 The saved-intent cleanup is complete: an unsaved Floating monitor draft no longer exposes the permission-required row or Grant action. RED commit `9290150b` failed in JVM-test compilation on the missing gate, and GREEN commit `9372ebc1` passed compile, JVM tests, and lint in Actions run `30472036614`.
 
@@ -161,7 +161,7 @@ Device evidence on 2026-07-30: persistently signed `0.9.6-dev.106` (`versionCode
 
 The repeated `Sampler params may be ignored on GPU backend` warning is not new to dev.106: both dev.105's baseline and dev.106 contain commit `aeb33721`. It is emitted by OlliteRT's OpenAI-compatible endpoint layer per request, while an upstream native direct-inference UI does not traverse that logging path. Its trigger also counts `max_tokens`, so common clients can produce an over-broad warning on every request. Any correction should be a separate focused change (exclude non-sampler length limits and deduplicate), not part of floating-monitor cleanup.
 
-These are cleanup tasks in `openspec/changes/add-background-floating-monitor/tasks.md`; they do not justify a redesign or a second service.
+The obsolete event-driven-idle RED was reverted after the cadence decision changed. The remaining monitor work is the approved static visual delta plus final source/JVM/CI review; it does not justify a second service.
 
 ## 8. Working rules
 
@@ -177,7 +177,8 @@ These are cleanup tasks in `openspec/changes/add-background-floating-monitor/tas
 ## 9. Current blockers and next action
 
 - Local Gradle remains unavailable because the host has no configured Java/JDK; code validation uses GitHub Actions.
-- Device runs the signed lifecycle build `0.9.6-dev.106`; it does not contain the later monitor cleanup through `93486e9c`.
-- The user completed a normal Gemma request/monitor smoke on dev.106; timeout, cancellation, Gate 0, and the latest tap-recovery code remain unverified on-device.
+- The active visual delta is specified but not implemented.
+- Five lifecycle source-hardening groups remain: terminal authority, deterministic exception recovery, grace removal, atomic model admission, and SSE parent cancellation.
+- Device Gate 0/Gate 5 and final inference smoke remain deferred and must not be inferred from compile/JVM/lint evidence.
 
-**Next action:** continue the floating-monitor task list with the idle-polling RED: RUNNING must be event-driven, while visible PROCESSING alone retains the 1 Hz elapsed ticker. Lifecycle Gate 0 remains paused until the user returns to inference lifecycle work.
+**Next action:** implement the active static Floating monitor delta in focused formatter/render-model/View RED → GREEN slices, then resume the five serialized-lane lifecycle hardening groups. Preserve `litertlm-android:0.11.0` and the protected `ServerLlmModelHelper.kt` boundary.

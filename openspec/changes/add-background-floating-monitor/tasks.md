@@ -45,17 +45,31 @@ Implement each as a focused RED → minimal GREEN cycle.
 
 Evidence: helper RED `b0da73d9` failed before the bounded state existed; initial GREEN `4ee62b00` passed compile/JVM/lint in Actions `30476236683`. Review then found that an immediate total launch failure could still depend on the unrelated ticker because `StateFlow` may conflate a same-turn `true → false`. Integration RED `75e69f15` failed on the missing coordinator in Actions `30477061732`; GREEN `93486e9c` added explicit detach/launch/reconcile coordination and passed compile/JVM/lint in Actions `30478480764`. Focused follow-up review closed both prior blockers with no new blocking Standards or Spec findings.
 
-### 4. Avoid perpetual idle polling
+### 4. Preserve the existing bounded one-second reconciliation
 
-- [ ] RED: a visible idle RUNNING monitor has no perpetual 1 Hz reconciliation loop.
-- [ ] Make state and metric changes event-driven; throttle/coalesce changing visible values to at most once per second.
-- [ ] Keep processing elapsed updates at 1 Hz while visible and stop all ticker work while hidden/disposed.
-- [ ] Preserve bounded retry after WindowManager failures and permission-revocation detection.
+- [x] Supersede the earlier proposal to eliminate the visible idle RUNNING 1 Hz loop.
+- [x] Revert the isolated failing RED that required `shouldScheduleFloatingMonitorRefresh()`.
+- [x] Keep state transitions event-driven while retaining the existing one-second metric, elapsed, permission-health, retry, and WindowManager reconciliation cadence whenever the monitor is visible.
+- [x] Keep all ticker work stopped while hidden or disposed.
+
+## Active static visual delta
+
+The active contract is `floating-monitor-visual-delta.md`. The breathing/carousel design is retained separately in `floating-monitor-breathing-carousel-delta.md` and is INACTIVE.
+
+Implement these as focused RED → minimal GREEN slices:
+
+- [ ] RED/GREEN: compact previous-latency formatter (`—`, exact `ms`, one-decimal `s`, and cap).
+- [ ] RED/GREEN: grouped request/error drawing retains commas while punctuation uses a narrower proportional advance.
+- [ ] RED/GREEN: render model/controller exposes existing `lastLatencyMs` only as previous successful latency.
+- [ ] RED/GREEN: View uses 88 × 100dp, approved palette/alpha, fixed type hierarchy, and unchanged RUNNING information layout.
+- [ ] RED/GREEN: changed dimensions preserve normalized-position restoration and clamp geometry across rotation/inset changes.
+- [ ] RED/GREEN: PROCESSING lower area renders `proc | last` with fixed columns, smaller units, divider, and no clipping at caps.
+- [ ] Verify that no breathing, carousel timer, new polling loop, average latency, Logo, or inference lifecycle behavior is introduced.
 
 ## Final verification
 
 - [ ] Run `git diff --check` and focused compile/JVM/lint on the exact final HEAD.
 - [ ] Re-run dual-axis review against the fixed monitor baseline.
-- [ ] Real device: saved/draft permission behavior, grant/deny/revoke, restart hint, RUNNING/PROCESSING, foreground/non-running hiding, tap failure recovery, drag, rotation/insets, reset, Service stop, and a real inference request.
-- [ ] Confirm overlay failures never stop the server and idle RUNNING does not wake at 1 Hz.
+- [ ] Deferred until separately authorized: real-device saved/draft permission behavior, grant/deny/revoke, restart hint, RUNNING/PROCESSING rendering, foreground/non-running hiding, tap-failure recovery, drag/placement, rotation/insets, reset, Service stop, and inference smoke.
+- [ ] Confirm overlay failures never stop the server, the existing visible one-second reconciliation remains bounded, and hidden/disposed monitor work stops.
 - [ ] Do not archive the OpenSpec change until all required evidence is complete.
