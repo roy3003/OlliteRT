@@ -854,6 +854,61 @@ class InferenceGatewayTest {
   }
 
   @Test
+  fun streamingStopSequenceWinnerEmitsOneCompletionNotification() {
+    val threadPool = Executors.newSingleThreadExecutor()
+    val nativeStarted = CountDownLatch(1)
+    val lifecycleFinished = CountDownLatch(1)
+    val cancelAction = AtomicReference<((InferenceGateway.CancellationReason) -> Unit)?>(null)
+    val doneCalls = AtomicInteger(0)
+    val cancelCalls = AtomicInteger(0)
+    val recoverCalls = AtomicInteger(0)
+
+    try {
+      InferenceGateway.executeStreaming(
+        timeoutSeconds = 30,
+        executor = threadPool,
+        inferenceLock = Any(),
+        operation = object : InferenceGateway.NativeOperation {
+          override fun prepare() = Unit
+
+          override fun dispatch(
+            onPartial: (String, Boolean, String?) -> Unit,
+            onError: (String) -> Unit,
+          ) {
+            nativeStarted.countDown()
+          }
+
+          override fun cancel() {
+            cancelCalls.incrementAndGet()
+          }
+
+          override fun recover() {
+            recoverCalls.incrementAndGet()
+          }
+
+          override fun finish() {
+            lifecycleFinished.countDown()
+          }
+        },
+        onToken = { _, done, _ -> if (done) doneCalls.incrementAndGet() },
+        onError = { fail("stop sequence must not surface as an error: $it") },
+        onCancellationReady = { cancel -> cancelAction.set(cancel) },
+      )
+
+      assertTrue("native inference did not start", nativeStarted.await(2, TimeUnit.SECONDS))
+      cancelAction.get()!!.invoke(InferenceGateway.CancellationReason.STOP_SEQUENCE)
+      assertTrue("lifecycle did not finish", lifecycleFinished.await(2, TimeUnit.SECONDS))
+
+      assertEquals("stop sequence must complete the stream exactly once", 1, doneCalls.get())
+      assertEquals(1, cancelCalls.get())
+      assertEquals(1, recoverCalls.get())
+    } finally {
+      threadPool.shutdownNow()
+      threadPool.awaitTermination(2, TimeUnit.SECONDS)
+    }
+  }
+
+  @Test
   fun streamingExternalCancellationCancelsOnceAndRecoversBeforeFinish() {
     val threadPool = Executors.newSingleThreadExecutor()
     val nativeStarted = CountDownLatch(1)
