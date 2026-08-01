@@ -1,316 +1,298 @@
-# Delta Spec: Compact Breathing Floating Monitor Carousel
+# Delta Spec: Compact Static Floating Monitor with Previous Latency
 
 ## Summary
 
-Replace the current simultaneous two-metric Floating monitor layout with a smaller, larger-type, single-page metric carousel. The visible pages rotate continuously through `req → proc → err → last` every 2.25 seconds. Page order and timing do not jump or reset when inference starts or finishes.
+Apply a small, static visual refresh to the existing point-top hexagonal Floating monitor without replacing its established top/bottom information hierarchy.
 
-`proc` and `last` intentionally use task-appropriate units. `proc` is a live elapsed timer in whole seconds with a `9999+` cap; `last` preserves the existing status metric in whole milliseconds with a `99999+` cap. Each page shows its unit explicitly.
+The control becomes one size smaller at 88 × 100dp. RUNNING keeps its current layout: grouped request count on top and grouped error count on the bottom. PROCESSING keeps request count on top, while the existing lower metric area is divided into two columns: current processing elapsed on the left and the previous successful request latency on the right.
 
-The hexagon fill breathes continuously in both RUNNING and PROCESSING, varying only fill opacity from 90% to 60% and back over a four-second full cycle. RUNNING and PROCESSING retain their approved state colors; a state transition changes the fill and edge hue immediately while preserving the breathing and carousel phases. The opaque 2dp edge remains, no Logo is added, and the controller's existing one-second metric/elapsed/permission/retry cadence remains unchanged.
+RUNNING uses `#4ADE80`; PROCESSING uses `#AFC6FF`. Only the fill is rendered at 80% alpha (`0xCC`). The same-state-color 2dp edge and ordinary text remain fully opaque. Previous-latency content uses 85% black (`0xD9000000`) to remain visually secondary.
+
+This revision is deliberately static. It does not implement breathing, carousel rotation, state-triggered metric paging, average latency, or a Logo. The alternative breathing/carousel design is preserved independently in `floating-monitor-breathing-carousel-delta.md`, marked INACTIVE, and is superseded for current implementation by this document.
 
 ## Scope
 
 ### In
 
-- Continuous four-page carousel: `req → proc → err → last`.
-- Fixed page dwell of 2.25 seconds with a direct cut between pages.
-- No page jump on inference start or completion.
-- Existing `ServerMetrics.lastLatencyMs` as the `last` data source.
-- Existing `ServerMetrics.avgLatencyMs` remains available elsewhere but is not shown in the overlay.
-- Explicit page-specific duration formatting: `proc` in seconds and `last` in milliseconds.
-- Continuous fill-only breathing in both RUNNING and PROCESSING.
-- Fill opacity range 90% ↔ 60%, with a four-second full cycle.
-- Immediate RUNNING/PROCESSING state-color changes independent of carousel position.
-- RUNNING state color `#4ADE80`.
-- PROCESSING state color `#AFC6FF`.
-- Existing same-state-color 2dp edge retained at 100% opacity.
-- Metric page colors:
-  - `req`: orange `#F59E0B`;
-  - `proc`: black `#000000`;
-  - `err`: red `#EF4444`;
-  - `last`: white `#FFFFFF`.
-- Single label plus single larger value on each page.
-- Compact geometry of 84 × 92dp.
-- Fixed label size 12sp and value size 22sp.
-- Request/error count formatting without grouping separators.
+- Point-top hexagon retained.
+- Control geometry changed from 96 × 108dp to 88 × 100dp.
+- RUNNING fill `#4ADE80` at alpha `0xCC`.
+- PROCESSING fill `#AFC6FF` at alpha `0xCC`.
+- Same-state-color 2dp edge at 100% opacity.
+- Ordinary labels, request/error values, and current processing elapsed at opaque black `#000000`.
+- Previous-latency label, value, and unit at 85% black `#D9000000`.
+- Existing top request block retained.
+- RUNNING lower error block retained as one centered full-width metric.
+- PROCESSING lower area split into:
+  - left: current processing elapsed and `proc` label;
+  - right: previous successful latency and `last` label.
+- A 1dp low-emphasis vertical divider between PROCESSING lower columns.
+- Request/error count grouping retained through 99,999.
+- Grouping comma rendered with narrower proportional punctuation advance instead of a full monospace digit cell.
+- Main request and RUNNING error values fixed at 20sp.
+- PROCESSING `proc` and `last` values fixed at 16sp.
+- Labels and `s`/`ms` unit suffixes fixed at 10sp.
+- Existing one-second metric and elapsed refresh cadence retained.
 
 ### Out
 
-- State-triggered page selection or page-order reset.
+- Breathing, pulsing, rotation, fade, slide, scale, or geometry animation.
+- Carousel pages or state-triggered page selection.
 - Displaying average latency, peak latency, TTFB, token speed, queue depth, or HTTP handler count.
-- New latency aggregation or terminal-outcome instrumentation.
-- Logo, bitmap, blur, gradient, shadow, glow, scale animation, geometry animation, or scrolling transition.
-- Whole-View alpha animation.
-- Per-frame `WindowManager.updateViewLayout()` calls.
-- Changes to the existing one-second controller cadence.
+- Logo, bitmap, blur, gradient, shadow, or glow.
+- Whole-View alpha changes.
+- Per-frame `WindowManager.updateViewLayout()`.
+- New latency aggregation or changes to `ServerMetrics.recordLatency()` semantics.
 - RUNNING/PROCESSING state semantics, admission, queueing, cancellation, recovery, Engine/Conversation ownership, model unload, or SSE behavior.
 - LiteRT-LM dependency or runtime upgrades; this phase remains on `litertlm-android:0.11.0`.
 
 ## Current Behavior
 
-- Observable behavior:
-  - The control measures 96 × 108dp.
-  - It simultaneously renders `req` in the upper half and one state-dependent secondary metric in the lower half.
-  - RUNNING renders cumulative `err`; PROCESSING renders current elapsed `proc` seconds.
-  - Values use 18sp bold monospace; labels use 10sp.
-  - Request/error counts use ASCII comma grouping such as `12,345` and cap at `99,999+`.
-  - The comma is already half-width ASCII, but monospace rendering allocates it a full character cell.
-  - No carousel or View-local animation exists.
-  - The current source still uses opaque `#55D68B` for RUNNING and `#FFB74D` for PROCESSING.
-  - The edge is a same-state-color 2dp stroke and text is opaque black.
-- Existing metric sources:
-  - `ServerMetrics.requestCount` supplies cumulative requests.
-  - `ServerMetrics.errorCount` supplies cumulative errors.
-  - `ProcessingElapsedTracker` supplies current active processing seconds.
-  - `ServerMetrics.lastLatencyMs` supplies the latest successfully recorded request latency.
-  - `ServerMetrics.avgLatencyMs` supplies average recorded latency but is intentionally excluded from the overlay.
-- Evidence:
-  - `FloatingMonitorView.kt` defines geometry, typography, state colors, stroke, and static simultaneous drawing.
-  - `FloatingMonitorFormatter.kt` defines comma grouping and existing count/elapsed caps.
-  - `FloatingMonitorController.kt` reads request/error/elapsed values once per second while visible.
-  - `ServerMetrics.kt` exposes `lastLatencyMs` and `avgLatencyMs`; `recordLatency()` updates both.
-  - `StatusScreen.kt` already displays Last Latency and Avg Latency from those fields.
-- Known inconsistencies:
-  - The previous visual Delta described static 80% fill, optional PROCESSING-only breathing, and excluded previous latency. This document replaces that contract completely.
-  - The current production implementation and canonical monitor documents still describe the older simultaneous layout and colors; they are migration targets, not the proposed behavior.
-  - The current branch HEAD contains an obsolete RED requiring removal of idle 1Hz reconciliation. That scheduling requirement remains superseded and is unrelated to this carousel/animation change.
+- The control measures 96 × 108dp.
+- The point-top hexagon is fully opaque.
+- Production colors are RUNNING `#55D68B` and PROCESSING `#FFB74D`.
+- The same-state-color edge is 2dp and opaque.
+- All text is opaque black.
+- The top block always shows `req` and request count.
+- RUNNING shows centered error count plus `err` in the lower block.
+- PROCESSING shows centered current elapsed seconds plus `proc` in the lower block.
+- Values use 18sp bold monospace; labels and the seconds suffix use 10sp.
+- Request/error counts retain comma grouping and cap as `99,999+`.
+- Because the whole count uses a monospace typeface, the ASCII comma consumes a full digit-width cell.
+- No previous-latency value is present in the overlay.
+- `ServerMetrics.lastLatencyMs` already exists and is displayed on the Status screen as Last Latency.
+- `lastLatencyMs` is updated by the existing successful inference completion path; errors and cancellations do not replace it.
+- State changes are event-driven; visible metrics, elapsed, permission health, and window reconciliation retain an existing one-second controller cadence.
+
+### Evidence
+
+- `FloatingMonitorView.kt`: geometry, state fill, edge, text paint, and current top/bottom layout.
+- `FloatingMonitorFormatter.kt`: grouped count and processing elapsed formatting.
+- `FloatingMonitorState.kt`: Hidden/RUNNING/PROCESSING derivation.
+- `FloatingMonitorController.kt`: one-second visible refresh and current metric snapshot.
+- `ServerMetrics.kt`: `requestCount`, `errorCount`, `isInferring`, `lastLatencyMs`, and `avgLatencyMs` producers.
+- `StatusScreen.kt`: existing Last Latency and Avg Latency display.
+
+### Superseded Planning Contract
+
+`floating-monitor-breathing-carousel-delta.md` specifies continuous breathing and a four-page `req → proc → err → last` carousel. It is retained as an INACTIVE alternative and is not an implementation requirement for this phase.
 
 ## Behavior Deltas
 
-### D-01 — Replace simultaneous metrics with a direct-page carousel
+### D-01 — Reduce the control footprint without changing its shape
 
 - Type: MODIFIED
-- Before: `req` is always visible together with either `err` or `proc`.
-- After: Exactly one metric page is visible at a time. Pages rotate continuously in the fixed order `req → proc → err → last`, with a direct cut every 2.25 seconds.
-- Reason: Allow larger text in a smaller control while retaining access to all selected data.
-- Affected actors/contracts: Floating monitor users, render model, View rendering, accessibility text, and visual/timing tests.
+- Before: The point-top hexagonal View is 96 × 108dp.
+- After: The same shape and rectangular touch window are 88 × 100dp.
+- Reason: Reduce screen obstruction while retaining a touch target comfortably above the Android minimum.
+- Affected actors/contracts: View measurement, hit rectangle, Canvas coordinates, drag clamping, restored normalized placement, and geometry tests.
 
-#### Scenario: Carousel advances continuously
+#### Scenario: Existing placement remains valid
 
-- GIVEN the monitor remains visible
-- WHEN each 2.25-second dwell expires
-- THEN the next page SHALL be selected in the fixed order `req → proc → err → last → req`
-- AND no fade, slide, or scrolling transition SHALL be required.
+- GIVEN a previously persisted normalized overlay position
+- WHEN the smaller View attaches
+- THEN the position SHALL be restored and clamped using the new measured dimensions
+- AND no raw-pixel migration SHALL be required.
 
-#### Scenario: Inference state does not redirect the carousel
+### D-02 — Apply the approved translucent state palette per layer
 
-- GIVEN any carousel page is currently visible
-- WHEN inference starts or finishes
-- THEN the page SHALL remain unchanged until its normal dwell expires
-- AND the page order and carousel phase SHALL not reset.
+- Type: MODIFIED
+- Before: RUNNING uses opaque `#55D68B`; PROCESSING uses opaque `#FFB74D`.
+- After: RUNNING fill uses `#4ADE80` at alpha `0xCC`; PROCESSING fill uses `#AFC6FF` at alpha `0xCC`. The 2dp edge uses the same state hue at 100% opacity. Ordinary text remains opaque.
+- Reason: Align the monitor with the App state palette while keeping text and edge clear.
+- Affected actors/contracts: Canvas paint constants and visual tests only.
 
-#### Scenario: Attachment restarts at the first page
+#### Scenario: Fill alpha does not fade content
 
-- GIVEN the monitor was hidden, detached, or disposed
-- WHEN a new visible attachment begins
-- THEN the carousel SHALL begin at `req`
-- AND detaching or disposing SHALL stop its page timer.
+- GIVEN either renderable state
+- WHEN the View draws
+- THEN alpha `0xCC` SHALL be applied only to the fill paint
+- AND the View, edge, ordinary text, and touch target SHALL not inherit that alpha.
 
-### D-02 — Display existing last latency without adding average latency
+### D-03 — Retain grouped counts with narrow punctuation
+
+- Type: MODIFIED
+- Before: Grouped counts such as `12,345` are drawn entirely with a monospace value paint, so the comma occupies a full digit-width cell.
+- After: Request and error counts retain ASCII comma grouping, but comma punctuation SHALL use a narrower proportional advance while digits remain visually stable. Counts remain exact through 99,999 and cap as `99,999+`.
+- Reason: Preserve familiar grouping and exact activity visibility while reclaiming width in the smaller control.
+- Affected actors/contracts: Count drawing helper, text centering, typeface/paint selection, formatter tests, and screenshot tests.
+
+#### Scenario: Grouped count remains centered
+
+- GIVEN values `999`, `1,000`, `12,345`, `99,999`, and a value above 99,999
+- WHEN the request or RUNNING error value is drawn
+- THEN the output SHALL be `999`, `1,000`, `12,345`, `99,999`, and `99,999+` respectively
+- AND the complete composite string SHALL remain centered despite the narrower comma.
+
+### D-04 — Keep RUNNING information layout unchanged
+
+- Type: MODIFIED
+- Before: RUNNING shows `req` plus request count in the top block and `err` plus error count in the centered lower block.
+- After: RUNNING retains that same information hierarchy and full-width lower error metric, adjusted only for the smaller geometry, new palette, 20sp main values, and narrow-comma drawing.
+- Reason: Preserve immediate request/error observability and avoid adding irrelevant previous latency while idle.
+- Affected actors/contracts: RUNNING Canvas baselines and visual tests.
+
+#### Scenario: RUNNING does not show last latency
+
+- GIVEN visual state RUNNING
+- WHEN the monitor draws
+- THEN the upper block SHALL show grouped `req`
+- AND the centered lower block SHALL show grouped `err`
+- AND no divider, `proc`, `last`, `s`, or `ms` content SHALL be present.
+
+### D-05 — Split only the PROCESSING lower metric area
+
+- Type: MODIFIED
+- Before: PROCESSING uses the entire centered lower area for current elapsed seconds and `proc`.
+- After: PROCESSING retains grouped `req` in the top block. Its lower area has two equal logical columns: left `proc`, right `last`, separated by a centered 1dp vertical divider. Values sit above their labels. RUNNING does not use this split.
+- Reason: Compare current elapsed time with the previous successful latency without carousel delay or additional View height.
+- Affected actors/contracts: PROCESSING Canvas geometry, divider paint, render model, and visual tests.
+
+#### Scenario: PROCESSING exposes current and previous timing together
+
+- GIVEN visual state PROCESSING
+- WHEN the monitor draws
+- THEN current elapsed SHALL be rendered in the left lower column
+- AND previous successful latency SHALL be rendered in the right lower column
+- AND the labels below SHALL read `proc` and `last`
+- AND a low-emphasis vertical divider SHALL separate the columns.
+
+### D-06 — Format current processing elapsed compactly
+
+- Type: MODIFIED
+- Before: Current processing elapsed is a centered 18sp value with a separate 10sp `s` suffix and a `9999+` cap.
+- After: Current elapsed remains whole seconds with a separate 10sp `s` suffix and the existing `9999+` cap, but uses a fixed 16sp value in the left PROCESSING column.
+- Reason: Preserve the existing elapsed semantics while fitting two stable columns.
+- Affected actors/contracts: Processing elapsed formatter, left-column centering, and boundary tests.
+
+#### Scenario: Proc remains current-request elapsed
+
+- GIVEN an active inference
+- WHEN the controller refreshes once per second
+- THEN `proc` SHALL show the current request's elapsed whole seconds
+- AND it SHALL reset according to the existing inference-sequence contract
+- AND it SHALL not use `lastLatencyMs` or average latency.
+
+### D-07 — Display previous successful latency with deterministic units
 
 - Type: ADDED
-- Before: The overlay does not display last or average request latency.
-- After: The `last` page displays `ServerMetrics.lastLatencyMs` directly as whole milliseconds from `1` through `99999`, capped as `99999+`, with a separate `ms` suffix. Before any positive latency is available it displays `—`. `ServerMetrics.avgLatencyMs` is not displayed.
-- Reason: Surface the existing status-page last-latency metric without adding lifecycle instrumentation or lengthening the carousel with a fifth page.
-- Affected actors/contracts: Render model, formatter, controller metric snapshot, accessibility text, and formatter tests.
+- Before: The overlay does not display `lastLatencyMs`.
+- After: The PROCESSING right column displays the existing previous successful `lastLatencyMs` using deterministic compact formatting:
+  - zero or absent: `—`, with no unit;
+  - `1..9999ms`: exact integer milliseconds with a separate `ms` suffix;
+  - `10000..999999ms`: seconds truncated to one decimal place with a separate `s` suffix, producing `10.0..999.9`;
+  - `1000000ms` or greater: `999+` with a separate `s` suffix.
+- Reason: Preserve millisecond precision for short requests while bounding text width for longer LLM generations.
+- Affected actors/contracts: Controller metric snapshot, render model, right-column formatter, unit paint, and accessibility output.
 
-#### Scenario: Last latency uses existing successful-request semantics
+#### Scenario: First inference has no previous successful latency
 
-- GIVEN `ServerMetrics.lastLatencyMs` has a positive value
-- WHEN the `last` page is visible
-- THEN it SHALL show that integer value with a separate `ms` suffix
-- AND a value above 99,999 milliseconds SHALL display `99999+`
-- AND it SHALL NOT infer duration from request logs, error counts, or current processing elapsed.
+- GIVEN `lastLatencyMs` is zero
+- WHEN the first request is PROCESSING
+- THEN the right column SHALL show `—`
+- AND no `ms` or `s` suffix SHALL be drawn.
 
-#### Scenario: No last latency is available
+#### Scenario: Previous latency changes units at a fixed threshold
 
-- GIVEN `ServerMetrics.lastLatencyMs` is zero
-- WHEN the `last` page is visible
-- THEN it SHALL display `—`
-- AND no unit suffix SHALL be displayed.
+- GIVEN previous successful latency values of 842ms, 9999ms, 10000ms, 12449ms, 999999ms, and 1000000ms
+- WHEN each value is formatted
+- THEN the outputs SHALL be `842 ms`, `9999 ms`, `10.0 s`, `12.4 s`, `999.9 s`, and `999+ s`
+- AND formatting SHALL not depend on runtime text measurement.
 
-### D-03 — Use explicit page-specific duration units
+#### Scenario: Last remains previous successful work during processing
 
-- Type: MODIFIED
-- Before: Current `proc` elapsed is formatted in seconds, while Last Latency is available in milliseconds only on the status/API surfaces; the overlay has no explicit two-page unit contract.
-- After: `proc` floors current elapsed milliseconds to whole seconds, displays `0` through `9999` with a separate `s` suffix, and caps larger values as `9999+`. `last` displays the existing integer `lastLatencyMs` from `1` through `99999` with a separate `ms` suffix and caps larger values as `99999+`. The `proc` page displays `0s` while RUNNING; `last` displays `—` with no suffix before data exists.
-- Reason: Seconds are easier to scan for a running timer, while milliseconds preserve useful precision for a completed latency measurement.
-- Affected actors/contracts: Processing elapsed formatting, last-latency formatting, render model, carousel page content, and accessibility text.
+- GIVEN request A completed successfully and request B is now PROCESSING
+- WHEN the monitor draws request B
+- THEN `last` SHALL show request A's recorded latency
+- AND completion, error, or cancellation semantics SHALL not be inferred in the visual layer.
 
-#### Scenario: Each duration page declares its unit
-
-- GIVEN positive `proc` and `last` durations are available
-- WHEN either page is visible
-- THEN `proc` SHALL display whole seconds with `s`
-- AND `last` SHALL display whole milliseconds with `ms`
-- AND neither page SHALL present a unitless positive value.
-
-#### Scenario: Short inference may complete between proc pages
-
-- GIVEN a request begins and ends while another carousel page is visible
-- WHEN no `proc` dwell occurs during that interval
-- THEN the carousel SHALL not jump to `proc`
-- AND RUNNING/PROCESSING fill and edge colors SHALL still follow the actual state immediately.
-
-### D-04 — Add continuous state-following fill breathing
-
-- Type: ADDED
-- Before: The fill is static and opaque.
-- After: While the View is visible and attached, only the fill alpha continuously varies `90% → 60% → 90%` over a four-second full cycle in both RUNNING and PROCESSING.
-- Reason: Keep the compact monitor visibly alive without moving its geometry or fading its data and edge.
-- Affected actors/contracts: View-local animation lifecycle, Canvas rendering, visual tests, and small continuous redraw cost.
-
-#### Scenario: State color changes without restarting animation
-
-- GIVEN the fill is at any point in its breathing cycle
-- WHEN state changes between RUNNING and PROCESSING
-- THEN the fill and edge hue SHALL change immediately to the new state color
-- AND the current breathing phase SHALL continue without resetting
-- AND the currently visible carousel page SHALL remain unchanged.
-
-#### Scenario: Only the fill breathes
-
-- GIVEN the animation is active
-- WHEN a frame is drawn
-- THEN only fill-paint alpha SHALL vary
-- AND the edge, page label, page value, and seconds suffix SHALL remain at 100% opacity
-- AND View alpha, scale, geometry, touch bounds, and WindowManager layout SHALL remain unchanged.
-
-#### Scenario: Animation lifetime follows View lifetime
-
-- GIVEN breathing is active
-- WHEN the monitor hides, detaches, deactivates, or disposes
-- THEN the animator SHALL stop
-- AND no animation-frame invalidation SHALL continue from the inactive View.
-
-### D-05 — Preserve approved state color and edge contract
+### D-08 — Establish fixed visual hierarchy and contrast
 
 - Type: MODIFIED
-- Before: Production source uses opaque RUNNING `#55D68B` and PROCESSING `#FFB74D`, with a same-color 2dp edge.
-- After: RUNNING uses `#4ADE80`; PROCESSING uses `#AFC6FF`. The fill uses the animated alpha from D-04; the same-state-color 2dp edge remains opaque.
-- Reason: Preserve the approved visual palette and explicit edge while incorporating breathing.
-- Affected actors/contracts: Canvas color constants and visual tests only.
+- Before: Main values are 18sp and all text is opaque black.
+- After:
+  - grouped `req` and RUNNING `err` values are fixed 20sp;
+  - PROCESSING `proc` and `last` values are fixed 16sp;
+  - labels and unit suffixes are fixed 10sp;
+  - ordinary content uses opaque black `#000000`;
+  - `last` label, value, dash, and unit use 85% black `#D9000000`;
+  - no value dynamically shrinks.
+- Reason: Keep primary request/current-state content dominant while making historical latency visibly secondary.
+- Affected actors/contracts: Text paints, baselines, value centering, and longest-string tests.
 
-#### Scenario: Color remains independent of metric page
+#### Scenario: Long values fit without dynamic scaling
 
-- GIVEN any of the four pages is visible
-- WHEN the server is RUNNING or PROCESSING
-- THEN fill and edge hue SHALL be determined only by server visual state
-- AND metric page selection SHALL not alter the state hue.
+- GIVEN `99,999+` in the top block, `9999+ s` in the left lower column, and `999.9 s` or `999+ s` in the right lower column
+- WHEN PROCESSING draws at 88 × 100dp
+- THEN all content SHALL remain inside the visible hexagon without clipping or overlap
+- AND font sizes SHALL remain fixed.
 
-### D-06 — Assign a stable color to each metric page
-
-- Type: MODIFIED
-- Before: All labels and values use opaque black.
-- After: Each page's label, value, and optional unit suffix use one opaque page color: `req #F59E0B`, `proc #000000`, `err #EF4444`, and `last #FFFFFF`.
-- Reason: Make page identity recognizable at a glance during continuous rotation.
-- Affected actors/contracts: Paint selection, accessibility descriptions, screenshot expectations, and contrast review.
-
-#### Scenario: Page color does not breathe
-
-- GIVEN any page is visible
-- WHEN fill opacity changes
-- THEN page text SHALL remain fully opaque in its assigned color
-- AND only the fill-paint alpha SHALL animate.
-
-### D-07 — Increase typography while shrinking geometry
+### D-09 — Keep visual refresh independent from server behavior
 
 - Type: MODIFIED
-- Before: The control is 96 × 108dp with 10sp labels and 18sp values in a simultaneous four-line layout.
-- After: The control is 84 × 92dp with a centered single-page layout, fixed 12sp label, and fixed 22sp value. Values SHALL not dynamically shrink per page.
-- Reason: Improve data readability while reducing the overlay footprint; the carousel removes the need for four simultaneous baselines.
-- Affected actors/contracts: View measurement, hit rectangle, Canvas baselines, text sizing, drag clamping, placement restoration, and visual tests.
-
-#### Scenario: Long bounded values fit without dynamic scaling
-
-- GIVEN `99999+`, `9999+`, or the accepted last-latency cap is visible
-- WHEN the page is drawn at 22sp
-- THEN the value SHALL fit inside the 84 × 92dp hexagon without clipping
-- AND the renderer SHALL not reduce font size dynamically.
-
-### D-08 — Remove count grouping separators
-
-- Type: MODIFIED
-- Before: Request and error counts use comma grouping, including `12,345` and `99,999+`.
-- After: Counts use ungrouped ASCII digits, including `12345` and `99999+`; the existing exact-count ceiling remains 99,999.
-- Reason: The existing comma is already half-width but consumes a full cell in the monospace value font. Removing it saves width for larger text.
-- Affected actors/contracts: Count formatter, formatter tests, visual tests, and accessibility output.
-
-#### Scenario: Count cap remains honest
-
-- GIVEN a request or error count at or below 99,999
-- THEN the exact ungrouped count SHALL be displayed
-- AND a larger count SHALL display `99999+`.
-
-### D-09 — Keep carousel, breathing, and controller cadence independent
-
-- Type: ADDED
-- Before: Only the one-second controller loop updates visible metrics and elapsed time.
-- After: State transitions remain event-driven; metric/elapsed/permission/retry reconciliation remains at one second; carousel dwell is 2.25 seconds; breathing uses a four-second View-local cycle. None of these clocks replaces another.
-- Reason: Prevent visual animation from altering server observation, permission health, retry behavior, or window placement.
+- Before: State changes are event-driven and visible metrics/window health reconcile once per second.
+- After: The same cadence remains. Adding `last` does not create another ticker, animation clock, callback, or server poll.
+- Reason: Keep the optional overlay outside the inference and Service critical paths.
 - Affected actors/contracts: Controller/View responsibility boundary and lifecycle tests.
 
-#### Scenario: Animation does not perform window work
+#### Scenario: Static rendering adds no animation work
 
-- GIVEN the monitor is attached and breathing or rotating pages
-- WHEN an animation or carousel frame changes
-- THEN the View MAY invalidate its own Canvas
-- AND it SHALL NOT call `WindowManager.updateViewLayout()` merely for breathing or page rotation.
+- GIVEN the monitor is attached
+- WHEN no state or one-second metric snapshot changes
+- THEN no animation frame SHALL be scheduled
+- AND no WindowManager layout update SHALL occur solely for visual effects.
 
 ## Compatibility Impact
 
-- API/protocol: None. HTTP and SSE contracts do not change.
-- Data/schema: None. Existing metrics are read without adding persisted fields or changing their semantics.
-- Configuration: None. No new user setting is introduced.
+- API/protocol: None.
+- Data/schema: None; existing `lastLatencyMs` is read without changing its producer.
+- Configuration: None; no new setting is introduced.
 - Client/provider/adapter: None.
-- User-visible behavior: Intentionally changed. Simultaneous metrics become a four-page carousel; motion is continuous; typography, dimensions, count formatting, state colors, and text colors change.
-- Placement/touch behavior: The overlay's rectangular touch window becomes smaller. Persisted normalized placement remains compatible but must be re-clamped against the new measured dimensions.
-- Operations/observability: Continuous fill animation and carousel add View-local redraw/timer work while visible, including idle RUNNING. The one-second controller health/retry cadence remains unchanged.
-- Security/privacy: None. Overlay permission and touch model do not change.
+- User-visible behavior: Intentional palette, size, typography, and PROCESSING layout change. RUNNING information hierarchy remains unchanged.
+- Placement/touch behavior: The window becomes smaller; normalized persisted position remains compatible but must be clamped using the new dimensions.
+- Operations/observability: Existing one-second visible reconciliation remains; no new continuous animation or polling overhead.
+- Security/privacy: None; overlay permission and tap/drag behavior do not change.
 
 ## Validation Matrix
 
 | Delta | Verification seam | Planned check | Pass condition |
 |---|---|---|---|
-| D-01 | Pure carousel state helper | Deterministic clock/page-sequence JVM tests | Page order is `req → proc → err → last`, dwell is 2.25s, and state changes do not redirect it |
-| D-01 | View lifecycle seam | Attach/detach tests | New attachment starts at req; detach/dispose stops page rotation |
-| D-02 | Render model and metric source | JVM tests with zero, positive, and over-cap `lastLatencyMs` | Zero renders `—`; positive values retain integer milliseconds with `ms`; values over 99,999 render `99999+`; avg is absent |
-| D-03 | Page-specific duration formatters plus render model | Boundary tests for both `proc` and `last` | `proc` uses whole seconds/`s`/`9999+`; `last` uses whole milliseconds/`ms`/`99999+`; RUNNING proc is `0s` |
-| D-04 | Pure alpha interpolation / animator lifecycle | JVM helper tests plus source review | Alpha stays within 60–90%; full cycle is 4s; inactive View stops frames |
-| D-04 | Runtime drawing boundary | Source review | Only fill-paint alpha changes; no whole-View or WindowManager animation exists |
-| D-05 | Pure visual constants | JVM visual-contract tests | RUNNING is `#4ADE80`, PROCESSING is `#AFC6FF`, edge is same hue at 2dp/100% |
-| D-06 | Page-palette helper | JVM tests | req/proc/err/last map exactly to their approved colors and remain opaque |
-| D-07 | Visual constants and geometry | JVM contract tests plus bounded screenshot check | Size is 84 × 92dp, label 12sp, value 22sp, and longest bounded values do not clip |
-| D-08 | Count formatter | JVM boundary tests | `12345`, `99999`, and `99999+` render without grouping separators |
-| D-09 | Controller/View source boundary | Source review and focused lifecycle tests | Existing 1Hz cadence is unchanged; carousel and breathing are View-local and stop when inactive |
-| D-01–D-09 | Real-device visual acceptance | Short recording over RUNNING and bounded PROCESSING | Carousel, state color, breathing, typography, and clipping match the contract without affecting server operation |
+| D-01 | Geometry constants and placement helper | JVM contract test plus source review | Size is 88 × 100dp and restored placement clamps with new dimensions |
+| D-02 | Paint constants | JVM visual-contract test | State hues match; only fill uses `0xCC`; edge/text remain opaque |
+| D-03 | Count formatter and composite text measurement | JVM boundaries plus bounded screenshot | Grouping/caps are exact, comma is narrower than a digit cell, full text remains centered |
+| D-04 | RUNNING render model/View | JVM model test plus screenshot | Only req and centered err appear; no split, last, or units appear |
+| D-05 | PROCESSING layout helper | JVM geometry test plus screenshot | Lower columns and 1dp divider are stable, non-overlapping, and correctly labeled |
+| D-06 | Processing elapsed formatter | JVM boundary/sequence tests | Whole seconds and `9999+` semantics remain unchanged; left value is fixed 16sp |
+| D-07 | Previous latency formatter | JVM tests at 0, 842, 9999, 10000, 12449, 999999, and 1000000ms | Outputs exactly match the deterministic unit/cap contract |
+| D-07 | Metric source | Source review and render-model test | PROCESSING reads existing `lastLatencyMs`; avg/error/cancel inference is absent |
+| D-08 | Text constants and Canvas measurement | JVM contract plus longest-string screenshot | 20sp/16sp/10sp hierarchy and `0xD9` last tint fit without dynamic scaling |
+| D-09 | Controller/View lifecycle | Source review and focused lifecycle tests | One-second cadence is unchanged; no animator, carousel timer, or per-frame WindowManager work exists |
+| D-01–D-09 | Real-device visual acceptance | Short bounded RUNNING/PROCESSING recording when authorized | Colors, narrow comma, split layout, units, fit, and state transitions match the contract |
 
 ## Risks and Mitigations
 
-- Continuous idle breathing adds persistent redraw work.
-  - Mitigation: animate only the small Canvas fill; perform no WindowManager layout work; stop immediately when hidden or detached.
-- A 2.25-second carousel can hide current elapsed during short requests.
-  - Mitigation: this is an explicit product decision; state color still changes immediately and no state-triggered page jump is added.
-- White `last` text and orange `req` text may have lower contrast on some breathing/background combinations.
-  - Mitigation: validate the user-selected palette over representative light and dark app backgrounds; do not silently replace the selected colors.
-- Larger fixed text inside a smaller hexagon can clip at caps.
-  - Mitigation: directly measure and screenshot-test `99999+` and `9999+`; adjust internal baselines/spacing rather than adding dynamic font scaling.
-- Multiple independent timers can leak after detach.
-  - Mitigation: one View-owned lifecycle stops carousel and breathing together on hide, detach, deactivate, and dispose.
-- `lastLatencyMs` records the latest successfully recorded latency rather than every failed/cancelled request.
-  - Mitigation: preserve and document the existing metric semantics; do not invent terminal outcomes in the visual layer.
+- The smaller PROCESSING lower half has limited horizontal width.
+  - Mitigation: fixed 16sp secondary values, small separate units, deterministic last-unit conversion, and longest-string validation before implementation closure.
+- Mixed stable-width digits and proportional comma punctuation can be miscentered if widths are estimated rather than measured.
+  - Mitigation: center the measured composite run and test every grouping boundary.
+- `lastLatencyMs` remains stale after a failed/cancelled request because it records the latest successful latency.
+  - Mitigation: label it `last`, document the successful-request semantics, and do not fabricate error/cancellation duration in the visual layer.
+- The latest successful value is hidden while RUNNING and becomes visible only during the next PROCESSING request.
+  - Mitigation: this is the approved compare-current-versus-previous design; the full Status screen remains the durable latency surface.
+- A translucent state fill inherits some variation from the underlying App.
+  - Mitigation: keep ordinary text and edge opaque, keep last at a still-dark `0xD9`, and require representative light/dark screenshot checks.
 
 ## Open Questions
 
-None required before implementation. Exact visual fit remains a validation gate rather than an unresolved product decision.
+None required before source/JVM implementation. Exact pixel fit remains a validation gate, not permission for dynamic font scaling or an undocumented geometry change.
 
 ## Handoff
 
 - Artifact path: `openspec/changes/add-background-floating-monitor/floating-monitor-visual-delta.md`
 - Delta IDs: D-01 through D-09
-- Compatibility-sensitive IDs: none externally; D-01, D-04, D-07, and D-09 require lifecycle/timing review
+- Compatibility-sensitive IDs: none externally; D-01, D-03, D-05, D-07, and D-08 require focused visual/measurement review
 - Validation matrix status: complete for source/JVM planning; real-device visual checks remain deferred until authorized
-- Tickets needed: no; implement as focused RED → GREEN slices for carousel/data, animation, and geometry/palette
+- Inactive alternative: `openspec/changes/add-background-floating-monitor/floating-monitor-breathing-carousel-delta.md`
 - Suggested next skill: `gm-tdd`
-- Review depth: moderate because two View-local timers must stop reliably and the smaller geometry must fit fixed-size values
+- Review depth: moderate because fixed-width grouped text and two compact PROCESSING columns must be measured honestly
 - Implementation approval status: visual behavior approved in conversation; production implementation not started by this document
