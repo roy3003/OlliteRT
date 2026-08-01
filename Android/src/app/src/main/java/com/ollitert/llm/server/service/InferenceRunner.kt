@@ -176,12 +176,13 @@ class InferenceRunner(
 
     val userCancelFlag = AtomicBoolean(false)
     val inferenceActuallyStarted = AtomicBoolean(false)
-    val cancellationActionRef = AtomicReference<(() -> Unit)?>(null)
+    val cancellationActionRef =
+      AtomicReference<((InferenceGateway.CancellationReason) -> Unit)?>(null)
     // Register cancel callback before any lock acquisition so queued requests are cancellable.
     if (logId != null) {
       RequestLogStore.registerCancellation(logId) {
         userCancelFlag.set(true)
-        cancellationActionRef.get()?.invoke()
+        cancellationActionRef.get()?.invoke(InferenceGateway.CancellationReason.EXTERNAL)
       }
     }
 
@@ -271,7 +272,7 @@ class InferenceRunner(
       onCaughtThrowable = { t -> emitDebugStackTrace(t, "execute", model.name) },
       onCancellationReady = { cancel ->
         cancellationActionRef.set(cancel)
-        if (userCancelFlag.get()) cancel()
+        if (userCancelFlag.get()) cancel(InferenceGateway.CancellationReason.EXTERNAL)
       },
     )
     if (logId != null) RequestLogStore.unregisterCancellation(logId)
