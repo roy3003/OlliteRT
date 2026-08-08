@@ -22,7 +22,7 @@ on:
         type: boolean
         default: true
       build_debug:
-        description: 'Build assemble<Flavor>Debug only (skip release signing/keystore decode)'
+        description: 'Build assemble<Flavor>Debug using persistent dev signing'
         type: boolean
         default: false
       source_ref:
@@ -80,6 +80,25 @@ jobs:
           [ -z "$KEY_PASSWORD" ] && MISSING+=("KEY_PASSWORD")
           if [ ${#MISSING[@]} -gt 0 ]; then
             echo "::error::Missing signing secrets: ${MISSING[*]} — configure in repository Settings > Secrets"
+            exit 1
+          fi
+        working-directory: .
+
+      - name: Validate persistent debug signing secrets
+        if: ${{ github.event.inputs.build_debug == 'true' }}
+        env:
+          DEV_KEYSTORE_BASE64: ${{ secrets.DEV_KEYSTORE_BASE64 }}
+          DEV_STORE_PASSWORD: ${{ secrets.DEV_STORE_PASSWORD }}
+          DEV_KEY_ALIAS: ${{ secrets.DEV_KEY_ALIAS }}
+          DEV_KEY_PASSWORD: ${{ secrets.DEV_KEY_PASSWORD }}
+        run: |
+          MISSING=()
+          [ -z "$DEV_KEYSTORE_BASE64" ] && MISSING+=("DEV_KEYSTORE_BASE64")
+          [ -z "$DEV_STORE_PASSWORD" ] && MISSING+=("DEV_STORE_PASSWORD")
+          [ -z "$DEV_KEY_ALIAS" ] && MISSING+=("DEV_KEY_ALIAS")
+          [ -z "$DEV_KEY_PASSWORD" ] && MISSING+=("DEV_KEY_PASSWORD")
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "::error::Missing persistent debug signing secrets: ${MISSING[*]}"
             exit 1
           fi
         working-directory: .
@@ -232,32 +251,53 @@ jobs:
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
         working-directory: .
 
+      - name: Decode persistent debug keystore
+        if: ${{ github.event.inputs.build_debug == 'true' }}
+        env:
+          DEV_KEYSTORE_BASE64: ${{ secrets.DEV_KEYSTORE_BASE64 }}
+        run: |
+          printf '%s' "$DEV_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/dev-debug.keystore"
+          chmod 0600 "$RUNNER_TEMP/dev-debug.keystore"
+        working-directory: .
+
       - name: Ensure Gradle wrapper is executable
         run: chmod +x ./gradlew
 
-      - name: Build signed APK
+      - name: Build debug APK
+        if: ${{ github.event.inputs.build_debug == 'true' }}
+        env:
+          DEBUG_KEYSTORE_FILE: ${{ runner.temp }}/dev-debug.keystore
+          DEBUG_STORE_PASSWORD: ${{ secrets.DEV_STORE_PASSWORD }}
+          DEBUG_KEY_ALIAS: ${{ secrets.DEV_KEY_ALIAS }}
+          DEBUG_KEY_PASSWORD: ${{ secrets.DEV_KEY_PASSWORD }}
         run: |
-          if [ "${{ github.event.inputs.build_debug }}" = "true" ]; then
-            ./gradlew --no-daemon \
-              "${{ steps.tag.outputs.task }}" \
-              -PAPP_VERSION_NAME="${{ steps.tag.outputs.version }}" \
-              -PAPP_VERSION_CODE="${{ github.run_number }}"
-          else
-            KEYSTORE_FILE="${{ runner.temp }}/release.keystore" \
-            STORE_PASSWORD="${{ secrets.STORE_PASSWORD }}" \
-            KEY_ALIAS="${{ secrets.KEY_ALIAS }}" \
-            KEY_PASSWORD="${{ secrets.KEY_PASSWORD }}" \
-            GRADLE_TASK="${{ steps.tag.outputs.task }}" \
-            APP_VERSION="${{ steps.tag.outputs.version }}" \
-            VERSION_CODE="${{ github.run_number }}" \
-            ./gradlew --no-daemon "$GRADLE_TASK" \
-              -PAPP_VERSION_NAME="$APP_VERSION" \
-              -PAPP_VERSION_CODE="$VERSION_CODE" \
-              -PKEYSTORE_FILE="$KEYSTORE_FILE" \
-              -PSTORE_PASSWORD="$STORE_PASSWORD" \
-              -PKEY_ALIAS="$KEY_ALIAS" \
-              -PKEY_PASSWORD="$KEY_PASSWORD"
-          fi
+          ./gradlew --no-daemon \
+            "${{ steps.tag.outputs.task }}" \
+            -PAPP_VERSION_NAME="${{ steps.tag.outputs.version }}" \
+            -PAPP_VERSION_CODE="${{ github.run_number }}"
+
+      - name: Build signed APK
+        if: ${{ github.event.inputs.build_debug != 'true' }}
+        run: |
+          KEYSTORE_FILE="${{ runner.temp }}/release.keystore" \
+          STORE_PASSWORD="${{ secrets.STORE_PASSWORD }}" \
+          KEY_ALIAS="${{ secrets.KEY_ALIAS }}" \
+          KEY_PASSWORD="${{ secrets.KEY_PASSWORD }}" \
+          GRADLE_TASK="${{ steps.tag.outputs.task }}" \
+          APP_VERSION="${{ steps.tag.outputs.version }}" \
+          VERSION_CODE="${{ github.run_number }}" \
+          ./gradlew --no-daemon "$GRADLE_TASK" \
+            -PAPP_VERSION_NAME="$APP_VERSION" \
+            -PAPP_VERSION_CODE="$VERSION_CODE" \
+            -PKEYSTORE_FILE="$KEYSTORE_FILE" \
+            -PSTORE_PASSWORD="$STORE_PASSWORD" \
+            -PKEY_ALIAS="$KEY_ALIAS" \
+            -PKEY_PASSWORD="$KEY_PASSWORD"
+
+      - name: Remove decoded debug keystore
+        if: ${{ always() && github.event.inputs.build_debug == 'true' }}
+        run: rm -f "$RUNNER_TEMP/dev-debug.keystore"
+        working-directory: .
 
       - name: Rename APKs
         id: apks
