@@ -49,6 +49,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 internal data class ConversationPreparation(
@@ -184,6 +185,7 @@ class InferenceRunner(
 
     val cancellationBridge = RequestCancellationBridge()
     val inferenceActuallyStarted = AtomicBoolean(false)
+    val inferenceSequence = AtomicLong(0L)
     // Register cancel callback before any lock acquisition so queued requests are cancellable.
     if (logId != null) {
       RequestLogStore.registerCancellation(logId) {
@@ -220,6 +222,7 @@ class InferenceRunner(
         if (initErr != null) throw RuntimeException("model_init_failed: $initErr")
         inferenceActuallyStarted.set(true)
         ServerMetrics.onInferenceStarted()
+        inferenceSequence.set(ServerMetrics.inferenceSequence.value)
         if (logId != null) RequestLogStore.update(logId) { it.copy(isGenerating = true) }
         if (configSnapshot != null) {
           originalConfig = model.configValues
@@ -312,7 +315,7 @@ class InferenceRunner(
       val outputTokens = estimateTokensLongByLength(outputLen)
       val maxCtx = model.configValues.maxTokensLong() ?: 0L
       ServerMetrics.addTokens(outputTokens)
-      ServerMetrics.recordLatency(result.totalMs)
+      ServerMetrics.recordLatency(result.totalMs, inferenceSequence.get())
       ServerMetrics.recordTtfb(result.ttfbMs)
       if (result.ttfbMs > 0) {
         ServerMetrics.recordInferenceMetrics(inputTokens, outputTokens, result.ttfbMs, result.totalMs - result.ttfbMs, maxCtx)
@@ -1044,6 +1047,7 @@ class InferenceRunner(
     var lastLogUpdateMs = 0L
     var firstTokenMs = 0L
     private val inferenceStartedFlag = AtomicBoolean(false)
+    private val inferenceSequence = AtomicLong(0L)
     val inferenceStarted: Boolean get() = inferenceStartedFlag.get()
     var inferenceCompleted = false
     // True once ServerMetrics.onInferenceCompleted has been called for this request.
@@ -1062,6 +1066,7 @@ class InferenceRunner(
     fun markStarted() {
       if (inferenceStartedFlag.compareAndSet(false, true)) {
         ServerMetrics.onInferenceStarted()
+        inferenceSequence.set(ServerMetrics.inferenceSequence.value)
       }
     }
 
@@ -1232,7 +1237,7 @@ class InferenceRunner(
       val ttfbMs = if (firstTokenMs > 0) firstTokenMs - streamStartMs else 0L
       val maxCtx = model.configValues.maxTokensLong() ?: 0L
       ServerMetrics.addTokens(outputTokens)
-      ServerMetrics.recordLatency(totalLatencyMs)
+      ServerMetrics.recordLatency(totalLatencyMs, inferenceSequence.get())
       ServerMetrics.recordTtfb(ttfbMs)
       if (firstTokenMs > 0) {
         ServerMetrics.recordInferenceMetrics(inputTokens, outputTokens, ttfbMs, totalLatencyMs - ttfbMs, maxCtx)

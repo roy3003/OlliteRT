@@ -16,18 +16,30 @@
 
 package com.ollitert.llm.server.ui.floatingmonitor
 
+import com.ollitert.llm.server.service.SuccessfulInferenceLatencySnapshot
+
 class PreviousSuccessfulLatencyLatch {
   private var processingSequence: Long? = null
+  private var latchedSuccessfulSequence = 0L
   private var latchedLatencyMs = 0L
 
   fun valueFor(
     isProcessing: Boolean,
     inferenceSequence: Long,
-    liveLatencyMs: Long,
+    latestSuccessfulLatency: SuccessfulInferenceLatencySnapshot,
   ): Long {
-    if (isProcessing && processingSequence != inferenceSequence) {
+    if (!isProcessing) return latchedLatencyMs
+
+    if (processingSequence != inferenceSequence) {
       processingSequence = inferenceSequence
-      latchedLatencyMs = liveLatencyMs.coerceAtLeast(0)
+      latchedSuccessfulSequence = 0L
+      latchedLatencyMs = 0L
+    }
+    if (
+      latestSuccessfulLatency.inferenceSequence in (latchedSuccessfulSequence + 1) until inferenceSequence
+    ) {
+      latchedSuccessfulSequence = latestSuccessfulLatency.inferenceSequence
+      latchedLatencyMs = latestSuccessfulLatency.latencyMs.coerceAtLeast(0)
     }
     return latchedLatencyMs
   }

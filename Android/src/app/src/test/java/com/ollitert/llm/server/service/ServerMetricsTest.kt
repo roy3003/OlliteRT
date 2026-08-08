@@ -96,6 +96,18 @@ class ServerMetricsTest {
   }
 
   @Test
+  fun recordLatencyPublishesLatestSuccessfulInferenceBySequence() {
+    ServerMetrics.recordLatency(ms = 842L, inferenceSequence = 1L)
+    ServerMetrics.recordLatency(ms = 1_244L, inferenceSequence = 2L)
+    ServerMetrics.recordLatency(ms = 900L, inferenceSequence = 1L)
+
+    assertEquals(
+      SuccessfulInferenceLatencySnapshot(inferenceSequence = 2L, latencyMs = 1_244L),
+      ServerMetrics.lastSuccessfulInferenceLatency.value,
+    )
+  }
+
+  @Test
   fun recordLatencyPeakOnlyIncreases() {
     ServerMetrics.recordLatency(200)
     ServerMetrics.recordLatency(100)
@@ -483,7 +495,7 @@ class ServerMetricsTest {
     ServerMetrics.incrementRequestCount()
     ServerMetrics.addTokens(100)
     ServerMetrics.addTokensIn(200)
-    ServerMetrics.recordLatency(500)
+    ServerMetrics.recordLatency(ms = 500L, inferenceSequence = 1L)
     ServerMetrics.recordModality(hasImages = true, hasAudio = false)
     ServerMetrics.incrementErrorCount(ErrorCategory.INFERENCE)
     ServerMetrics.recordTtfb(50)
@@ -507,6 +519,7 @@ class ServerMetricsTest {
     assertEquals(0L, ServerMetrics.tokensGenerated.value)
     assertEquals(0L, ServerMetrics.tokensIn.value)
     assertEquals(0L, ServerMetrics.lastLatencyMs.value)
+    assertEquals(SuccessfulInferenceLatencySnapshot(), ServerMetrics.lastSuccessfulInferenceLatency.value)
     assertEquals(0L, ServerMetrics.peakLatencyMs.value)
     assertEquals(0L, ServerMetrics.avgLatencyMs.value)
     assertEquals(0L, ServerMetrics.textRequests.value)

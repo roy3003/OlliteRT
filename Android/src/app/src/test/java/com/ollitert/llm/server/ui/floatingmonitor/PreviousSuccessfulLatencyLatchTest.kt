@@ -16,26 +16,75 @@
 
 package com.ollitert.llm.server.ui.floatingmonitor
 
+import com.ollitert.llm.server.service.SuccessfulInferenceLatencySnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class PreviousSuccessfulLatencyLatchTest {
 
   @Test
-  fun `new processing sequence snapshots live latency once`() {
+  fun `late predecessor completion updates the next processing sequence`() {
     val latch = PreviousSuccessfulLatencyLatch()
 
-    assertEquals(0L, latch.valueFor(isProcessing = false, inferenceSequence = 0L, liveLatencyMs = 842L))
-    assertEquals(842L, latch.valueFor(isProcessing = true, inferenceSequence = 1L, liveLatencyMs = 842L))
-    assertEquals(842L, latch.valueFor(isProcessing = true, inferenceSequence = 1L, liveLatencyMs = 1_244L))
+    assertEquals(
+      0L,
+      latch.valueFor(
+        isProcessing = true,
+        inferenceSequence = 2L,
+        latestSuccessfulLatency = SuccessfulInferenceLatencySnapshot(),
+      ),
+    )
+    assertEquals(
+      842L,
+      latch.valueFor(
+        isProcessing = true,
+        inferenceSequence = 2L,
+        latestSuccessfulLatency = SuccessfulInferenceLatencySnapshot(inferenceSequence = 1L, latencyMs = 842L),
+      ),
+    )
   }
 
   @Test
-  fun `next processing sequence snapshots latest successful latency`() {
+  fun `current processing sequence never uses its own completed latency`() {
     val latch = PreviousSuccessfulLatencyLatch()
 
-    assertEquals(842L, latch.valueFor(isProcessing = true, inferenceSequence = 1L, liveLatencyMs = 842L))
-    assertEquals(842L, latch.valueFor(isProcessing = false, inferenceSequence = 1L, liveLatencyMs = 1_244L))
-    assertEquals(1_244L, latch.valueFor(isProcessing = true, inferenceSequence = 2L, liveLatencyMs = 1_244L))
+    assertEquals(
+      842L,
+      latch.valueFor(
+        isProcessing = true,
+        inferenceSequence = 2L,
+        latestSuccessfulLatency = SuccessfulInferenceLatencySnapshot(inferenceSequence = 1L, latencyMs = 842L),
+      ),
+    )
+    assertEquals(
+      842L,
+      latch.valueFor(
+        isProcessing = true,
+        inferenceSequence = 2L,
+        latestSuccessfulLatency = SuccessfulInferenceLatencySnapshot(inferenceSequence = 2L, latencyMs = 1_244L),
+      ),
+    )
+  }
+
+  @Test
+  fun `new processing sequence advances to the newest completed predecessor`() {
+    val latch = PreviousSuccessfulLatencyLatch()
+
+    assertEquals(
+      842L,
+      latch.valueFor(
+        isProcessing = true,
+        inferenceSequence = 3L,
+        latestSuccessfulLatency = SuccessfulInferenceLatencySnapshot(inferenceSequence = 1L, latencyMs = 842L),
+      ),
+    )
+    assertEquals(
+      1_244L,
+      latch.valueFor(
+        isProcessing = true,
+        inferenceSequence = 3L,
+        latestSuccessfulLatency = SuccessfulInferenceLatencySnapshot(inferenceSequence = 2L, latencyMs = 1_244L),
+      ),
+    )
   }
 }

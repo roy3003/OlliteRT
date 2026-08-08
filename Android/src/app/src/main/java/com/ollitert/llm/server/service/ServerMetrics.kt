@@ -24,6 +24,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
+data class SuccessfulInferenceLatencySnapshot(
+  val inferenceSequence: Long = 0L,
+  val latencyMs: Long = 0L,
+)
+
 /**
  * Singleton holding live server metrics. Written by [ServerService], read by the UI layer.
  */
@@ -89,6 +94,11 @@ object ServerMetrics {
 
   private val _lastLatencyMs = sessionFlow(0L)
   val lastLatencyMs: StateFlow<Long> = _lastLatencyMs.asStateFlow()
+
+  /** The latest successful inference latency paired with the inference sequence that produced it. */
+  private val _lastSuccessfulInferenceLatency = sessionFlow(SuccessfulInferenceLatencySnapshot())
+  val lastSuccessfulInferenceLatency: StateFlow<SuccessfulInferenceLatencySnapshot> =
+    _lastSuccessfulInferenceLatency.asStateFlow()
 
   private val _peakLatencyMs = sessionFlow(0L)
   val peakLatencyMs: StateFlow<Long> = _peakLatencyMs.asStateFlow()
@@ -331,11 +341,17 @@ object ServerMetrics {
     _tokensInFlow.value = _tokensIn.addAndGet(count)
   }
 
-  fun recordLatency(ms: Long) {
+  fun recordLatency(ms: Long, inferenceSequence: Long = 0L) {
     _lastLatencyMs.value = ms
     // Synchronized: MutableStateFlow.value read-compare-write isn't atomic without explicit locking.
     synchronized(this) {
       if (ms > _peakLatencyMs.value) _peakLatencyMs.value = ms
+      if (inferenceSequence > _lastSuccessfulInferenceLatency.value.inferenceSequence) {
+        _lastSuccessfulInferenceLatency.value = SuccessfulInferenceLatencySnapshot(
+          inferenceSequence = inferenceSequence,
+          latencyMs = ms,
+        )
+      }
     }
     val totalMs = _totalLatencyMs.addAndGet(ms)
     val count = _latencyCount.incrementAndGet()

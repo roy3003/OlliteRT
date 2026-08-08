@@ -25,6 +25,7 @@ import com.ollitert.llm.server.MainActivity
 import com.ollitert.llm.server.OlliteRTLifecycleProvider
 import com.ollitert.llm.server.common.ServerStatus
 import com.ollitert.llm.server.service.ServerMetrics
+import com.ollitert.llm.server.service.SuccessfulInferenceLatencySnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -83,17 +84,29 @@ class FloatingMonitorController(
     permissionCoordinator.refreshObservedPermission(appContext)
     monitorJob = scope.launch {
       try {
-        val metricInputs = combine(
+        val inferenceMetrics = combine(
           ServerMetrics.status,
           ServerMetrics.isInferring,
           ServerMetrics.inferenceSequence,
-          lifecycleProvider.isAppInForeground,
-          settingEnabled,
-        ) { status, isInferring, inferenceSequence, appIsForeground, settingIsEnabled ->
-          MetricInput(
+          ServerMetrics.lastSuccessfulInferenceLatency,
+        ) { status, isInferring, inferenceSequence, latestSuccessfulLatency ->
+          InferenceMetricInput(
             status = status,
             isInferring = isInferring,
             inferenceSequence = inferenceSequence,
+            latestSuccessfulLatency = latestSuccessfulLatency,
+          )
+        }
+        val metricInputs = combine(
+          inferenceMetrics,
+          lifecycleProvider.isAppInForeground,
+          settingEnabled,
+        ) { inference, appIsForeground, settingIsEnabled ->
+          MetricInput(
+            status = inference.status,
+            isInferring = inference.isInferring,
+            inferenceSequence = inference.inferenceSequence,
+            latestSuccessfulLatency = inference.latestSuccessfulLatency,
             appIsForeground = appIsForeground,
             settingEnabled = settingIsEnabled,
           )
@@ -114,6 +127,7 @@ class FloatingMonitorController(
             status = metrics.status,
             isInferring = metrics.isInferring,
             inferenceSequence = metrics.inferenceSequence,
+            latestSuccessfulLatency = metrics.latestSuccessfulLatency,
             appIsForeground = metrics.appIsForeground,
             settingEnabled = metrics.settingEnabled,
             permissionFlowInProgress = visibility.permissionFlowInProgress,
@@ -229,7 +243,7 @@ class FloatingMonitorController(
     val previousSuccessfulLatencyMs = previousSuccessfulLatencyLatch.valueFor(
       isProcessing = visualState == FloatingMonitorVisualState.Processing,
       inferenceSequence = input.inferenceSequence,
-      liveLatencyMs = ServerMetrics.lastLatencyMs.value,
+      latestSuccessfulLatency = input.latestSuccessfulLatency,
     )
     val visible = shouldShowFloatingMonitor(
       settingEnabled = input.settingEnabled,
@@ -321,10 +335,18 @@ class FloatingMonitorController(
     }
   }
 
+  private data class InferenceMetricInput(
+    val status: ServerStatus,
+    val isInferring: Boolean,
+    val inferenceSequence: Long,
+    val latestSuccessfulLatency: SuccessfulInferenceLatencySnapshot,
+  )
+
   private data class MetricInput(
     val status: ServerStatus,
     val isInferring: Boolean,
     val inferenceSequence: Long,
+    val latestSuccessfulLatency: SuccessfulInferenceLatencySnapshot,
     val appIsForeground: Boolean,
     val settingEnabled: Boolean,
   )
@@ -339,6 +361,7 @@ class FloatingMonitorController(
     val status: ServerStatus,
     val isInferring: Boolean,
     val inferenceSequence: Long,
+    val latestSuccessfulLatency: SuccessfulInferenceLatencySnapshot,
     val appIsForeground: Boolean,
     val settingEnabled: Boolean,
     val permissionFlowInProgress: Boolean,
