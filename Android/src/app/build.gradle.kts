@@ -1,5 +1,18 @@
 import java.util.Properties
 
+fun envOrNull(name: String): String? = System.getenv(name)?.trim()?.ifEmpty { null }
+
+val debugKeystoreFile = envOrNull("DEBUG_KEYSTORE_FILE")
+val debugStorePassword = envOrNull("DEBUG_STORE_PASSWORD")
+val debugKeyAlias = envOrNull("DEBUG_KEY_ALIAS")
+val debugKeyPassword = envOrNull("DEBUG_KEY_PASSWORD")
+val hasPersistentDebugSigning = listOf(
+  debugKeystoreFile,
+  debugStorePassword,
+  debugKeyAlias,
+  debugKeyPassword,
+).all { !it.isNullOrBlank() }
+
 /*
  * Copyright 2025 Google LLC
  * Modifications Copyright 2025-2026 @NightMean (https://github.com/NightMean)
@@ -102,6 +115,22 @@ android {
         keyPassword = System.getenv("KEY_PASSWORD")
       }
     }
+
+    if (hasPersistentDebugSigning) {
+      val debugStore = file(debugKeystoreFile!!)
+      if (!debugStore.exists()) {
+        logger.warn("WARNING: Persistent debug keystore not found at $debugKeystoreFile. Falling back to default debug signing.")
+      } else {
+        create("persistentDebug") {
+          storeFile = debugStore
+          storePassword = debugStorePassword
+          keyAlias = debugKeyAlias
+          keyPassword = debugKeyPassword
+        }
+      }
+    } else if (!debugKeystoreFile.isNullOrBlank()) {
+      logger.warn("WARNING: Persistent debug signing env vars are incomplete. Falling back to default debug signing.")
+    }
   }
 
   // Product flavors: dev, beta, stable — all three can be installed side-by-side.
@@ -152,6 +181,11 @@ android {
   }
 
   buildTypes {
+    debug {
+      signingConfigs.findByName("persistentDebug")?.let {
+        if (it.storeFile != null) signingConfig = it
+      }
+    }
     release {
       isMinifyEnabled = true
       isShrinkResources = true
