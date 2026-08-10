@@ -1,9 +1,6 @@
 name: Build and release signed APK from version tag (stable/beta/dev)
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
@@ -23,7 +20,7 @@ on:
         default: true
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   # Normalize: dispatch uses 'v1.0.0', push uses 'refs/tags/v1.0.0'
@@ -54,6 +51,21 @@ jobs:
         run: |
           if [[ ! "$INPUT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+|-dev\.[0-9]+)?$ ]]; then
             echo "::error::Invalid tag format: $INPUT_TAG (expected vX.Y.Z, vX.Y.Z-beta.N, or vX.Y.Z-dev.N)"
+            exit 1
+          fi
+        working-directory: .
+
+      - name: Require build-only dev dispatch
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          BUILD_ONLY: ${{ github.event.inputs.build_only }}
+        run: |
+          if [ "$BUILD_ONLY" != "true" ]; then
+            echo "::error::This isolated branch only permits build_only=true"
+            exit 1
+          fi
+          if [[ ! "$INPUT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-dev\.[0-9]+$ ]]; then
+            echo "::error::Build-only artifacts must use a dev tag (vX.Y.Z-dev.N)"
             exit 1
           fi
         working-directory: .
@@ -99,12 +111,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
 
       - name: Verify build source
         run: |
+          echo "dispatch-ref=${{ github.ref }}"
+          echo "dispatch-sha=${{ github.sha }}"
           git status --short
           git log -1 --format='build-source=%H%nsubject=%s'
         working-directory: .
@@ -268,6 +283,11 @@ jobs:
       - name: Remove decoded debug keystore
         if: ${{ always() && github.event.inputs.build_only == 'true' }}
         run: rm -f "$RUNNER_TEMP/dev-debug.keystore"
+        working-directory: .
+
+      - name: Remove decoded release keystore
+        if: ${{ always() && github.event.inputs.build_only != 'true' }}
+        run: rm -f "$RUNNER_TEMP/release.keystore"
         working-directory: .
 
       - name: Rename APKs
